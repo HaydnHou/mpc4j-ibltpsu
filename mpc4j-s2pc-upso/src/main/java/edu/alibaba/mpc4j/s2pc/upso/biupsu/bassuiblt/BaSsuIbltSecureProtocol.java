@@ -157,9 +157,9 @@ class BaSsuIbltSecureProtocol {
         byte[][] leftFixedInputs, boolean[] leftActiveFlags, BaSsuIbltOprfTagOutput leftTagOutput,
         byte[][] rightFixedInputs, boolean[] rightActiveFlags, BaSsuIbltOprfTagOutput rightTagOutput,
         BaSsuIbltUnionProbeBackendConfig unionProbeBackendConfig) {
-        checkProductionQueuePeelBackend(unionProbeBackendConfig);
-        throw new UnsupportedOperationException(
-            "production queue-peel adapter requires a remote-state-hiding UP-BA-UPOT implementation"
+        return BaSsuIbltProductionQueuePeelAdapter.run(
+            leftSet, rightSet, elementByteLength, params, leftFixedInputs, leftActiveFlags, leftTagOutput,
+            rightFixedInputs, rightActiveFlags, rightTagOutput, unionProbeBackendConfig
         );
     }
 
@@ -254,29 +254,6 @@ class BaSsuIbltSecureProtocol {
             }
         }
         return new RetryResult(anchorRemaining.isEmpty() && shadowRemaining.isEmpty(), peeled, probeCount);
-    }
-
-    private static void checkProductionQueuePeelBackend(BaSsuIbltUnionProbeBackendConfig unionProbeBackendConfig) {
-        if (unionProbeBackendConfig == null) {
-            throw new IllegalArgumentException("unionProbeBackendConfig must be non-null");
-        }
-        if (!(unionProbeBackendConfig instanceof BaSsuIbltProductionUnionProbeBackendConfig)) {
-            throw new IllegalArgumentException(
-                "production queue-peel secure core requires the trusted production union-probe backend type; "
-                    + unionProbeBackendConfig.getUnionProbeBackendName() + " is not trusted"
-            );
-        }
-        if (!unionProbeBackendConfig.isSpecializedBucketProbe()) {
-            throw new IllegalArgumentException(
-                "production queue-peel secure core requires a specialized bucket-probe backend"
-            );
-        }
-        if (!unionProbeBackendConfig.isQueuePeelProductionReady()) {
-            throw new IllegalArgumentException(
-                "production queue-peel secure core requires a production-ready backend; "
-                    + unionProbeBackendConfig.getUnionProbeBackendName() + " is fail-closed"
-            );
-        }
     }
 
     static int fixedRoundCount(BaSsuIbltBiUpsuParams params) {

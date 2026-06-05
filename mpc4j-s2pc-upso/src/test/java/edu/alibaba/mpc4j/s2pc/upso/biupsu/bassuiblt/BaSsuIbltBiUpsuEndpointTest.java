@@ -245,7 +245,7 @@ public class BaSsuIbltBiUpsuEndpointTest {
                 .build());
         Assert.assertTrue(abort.getMessage().contains("production-ready union-probe backend"));
         Assert.assertTrue(abort.getMessage().contains("not production ready"));
-        Assert.assertTrue(abort.getMessage().contains("local capsule decoding"));
+        Assert.assertTrue(abort.getMessage().contains("remote bucket state"));
     }
 
 

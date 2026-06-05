@@ -68,6 +68,28 @@ class BaSsuIbltProductionUnionProbeReferenceCodec {
             (byte) checkByteLength, (byte) authTagByteLength});
     }
 
+    BaSsuIbltProductionUnionProbeCapsule encode(int bucketIndex, BaSsuIbltSecureCellView cellView) {
+        if (bucketIndex < 0) {
+            throw new IllegalArgumentException("bucketIndex must be non-negative");
+        }
+        if (cellView == null) {
+            throw new IllegalArgumentException("cellView must be non-null");
+        }
+        if (cellView.getElementByteLength() != elementByteLength || cellView.getTagByteLength() != tagByteLength
+            || cellView.getCheckByteLength() != checkByteLength) {
+            throw new IllegalArgumentException("cellView byte lengths must match codec config");
+        }
+        byte[] plaintext = localPlaintext(cellView);
+        byte[] ciphertext = xor(plaintext, mask(bucketIndex, plaintext.length));
+        byte[] authTag = Arrays.copyOf(digest(DOMAIN_AUTH, bucketIndex, 0, maskSeed, ciphertext), authTagByteLength);
+        byte[] encoded = new byte[BaSsuIbltProductionUnionProbeCodec.capsuleByteLength(
+            elementByteLength, tagByteLength, checkByteLength, authTagByteLength
+        )];
+        System.arraycopy(ciphertext, 0, encoded, 0, ciphertext.length);
+        System.arraycopy(authTag, 0, encoded, ciphertext.length, authTag.length);
+        return new BaSsuIbltProductionUnionProbeCapsule(bucketIndex, encoded, encoded.length);
+    }
+
     BaSsuIbltProductionUnionProbeOutput open(int bucketIndex, BaSsuIbltProductionUnionProbeCapsule anchorCapsule,
                                              BaSsuIbltProductionUnionProbeCapsule shadowCapsule) {
         if (anchorCapsule == null || shadowCapsule == null) {
@@ -130,6 +152,27 @@ class BaSsuIbltProductionUnionProbeReferenceCodec {
             return new DecodedLocal(state, element, tag, check);
         }
         throw new IllegalArgumentException("invalid local-state wire");
+    }
+
+    private byte[] localPlaintext(BaSsuIbltSecureCellView cellView) {
+        byte[] plaintext = new byte[1 + elementByteLength + tagByteLength + checkByteLength];
+        if (cellView.getCount() == 0 && isZero(cellView.getKeyXorReference())
+            && isZero(cellView.getTagXorReference()) && isZero(cellView.getCheckXorReference())) {
+            plaintext[0] = STATE_EMPTY;
+            return plaintext;
+        }
+        if (cellView.isValidSingleton()) {
+            plaintext[0] = STATE_SINGLETON;
+            int offset = 1;
+            System.arraycopy(cellView.getKeyXorReference(), 0, plaintext, offset, elementByteLength);
+            offset += elementByteLength;
+            System.arraycopy(cellView.getTagXorReference(), 0, plaintext, offset, tagByteLength);
+            offset += tagByteLength;
+            System.arraycopy(cellView.getCheckXorReference(), 0, plaintext, offset, checkByteLength);
+            return plaintext;
+        }
+        plaintext[0] = STATE_BLOCKED;
+        return plaintext;
     }
 
     private byte[] mask(int bucketIndex, int byteLength) {

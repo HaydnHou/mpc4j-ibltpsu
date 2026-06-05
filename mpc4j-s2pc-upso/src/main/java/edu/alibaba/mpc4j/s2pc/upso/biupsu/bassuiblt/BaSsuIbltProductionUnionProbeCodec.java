@@ -2,43 +2,27 @@ package edu.alibaba.mpc4j.s2pc.upso.biupsu.bassuiblt;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
-
 /**
- * Fixed-shape production UP-BA-UPOT local capsule encoder.
+ * Fixed-shape production UP-BA-UPOT local opaque capsule encoder.
  *
  * <p>This main-code codec deliberately does not expose a local opener/decoder for remote capsules. Truth-table
  * regression helpers that decode both sides belong in test/reference code only; production code must use a real
- * remote-state-hiding UP-BA-UPOT evaluator before {@code isQueuePeelProductionReady()} can become true.</p>
+ * remote-state-hiding UP-BA-UPOT evaluator before {@code isQueuePeelProductionReady()} can become true. The fail-closed
+ * placeholder capsule intentionally does not carry local state, element, tag, or check material in a reversible
+ * encoding.</p>
  *
  * @author donghai hou
  * @date 2026/06/05
  */
 class BaSsuIbltProductionUnionProbeCodec {
     /**
-     * local-state mask domain.
+     * opaque capsule domain.
      */
-    private static final byte DOMAIN_MASK = 0x71;
-    /**
-     * auth domain.
-     */
-    private static final byte DOMAIN_AUTH = 0x72;
+    private static final byte DOMAIN_OPAQUE_CAPSULE = 0x71;
     /**
      * seed domain.
      */
     private static final byte DOMAIN_SEED = 0x73;
-    /**
-     * empty state code.
-     */
-    private static final byte STATE_EMPTY = 0x00;
-    /**
-     * singleton state code.
-     */
-    private static final byte STATE_SINGLETON = 0x01;
-    /**
-     * blocked state code.
-     */
-    private static final byte STATE_BLOCKED = 0x02;
     /**
      * element byte length.
      */
@@ -56,9 +40,9 @@ class BaSsuIbltProductionUnionProbeCodec {
      */
     private final int authTagByteLength;
     /**
-     * domain-separated mask seed.
+     * domain-separated opaque seed.
      */
-    private final byte[] maskSeed;
+    private final byte[] opaqueSeed;
 
     BaSsuIbltProductionUnionProbeCodec(BaSsuIbltProductionUnionProbeBackendConfig config, byte[] seed) {
         this(
@@ -85,7 +69,7 @@ class BaSsuIbltProductionUnionProbeCodec {
         this.tagByteLength = tagByteLength;
         this.checkByteLength = checkByteLength;
         this.authTagByteLength = authTagByteLength;
-        maskSeed = digest(DOMAIN_SEED, 0, 0, seed, new byte[]{(byte) elementByteLength, (byte) tagByteLength,
+        opaqueSeed = digest(DOMAIN_SEED, 0, 0, seed, new byte[]{(byte) elementByteLength, (byte) tagByteLength,
             (byte) checkByteLength, (byte) authTagByteLength});
     }
 
@@ -109,34 +93,8 @@ class BaSsuIbltProductionUnionProbeCodec {
             throw new IllegalArgumentException("cellView must be non-null");
         }
         checkLengths(cellView);
-        byte[] plaintext = localPlaintext(cellView);
-        byte[] ciphertext = xor(plaintext, mask(bucketIndex, plaintext.length));
-        byte[] authTag = Arrays.copyOf(digest(DOMAIN_AUTH, bucketIndex, 0, maskSeed, ciphertext), authTagByteLength);
-        byte[] encoded = new byte[capsuleByteLength()];
-        System.arraycopy(ciphertext, 0, encoded, 0, ciphertext.length);
-        System.arraycopy(authTag, 0, encoded, ciphertext.length, authTag.length);
+        byte[] encoded = opaqueCapsule(bucketIndex);
         return new BaSsuIbltProductionUnionProbeCapsule(bucketIndex, encoded, encoded.length);
-    }
-
-    private byte[] localPlaintext(BaSsuIbltSecureCellView cellView) {
-        byte[] plaintext = new byte[1 + elementByteLength + tagByteLength + checkByteLength];
-        if (cellView.getCount() == 0 && isZero(cellView.getKeyXorReference())
-            && isZero(cellView.getTagXorReference()) && isZero(cellView.getCheckXorReference())) {
-            plaintext[0] = STATE_EMPTY;
-            return plaintext;
-        }
-        if (cellView.isValidSingleton()) {
-            plaintext[0] = STATE_SINGLETON;
-            int offset = 1;
-            System.arraycopy(cellView.getKeyXorReference(), 0, plaintext, offset, elementByteLength);
-            offset += elementByteLength;
-            System.arraycopy(cellView.getTagXorReference(), 0, plaintext, offset, tagByteLength);
-            offset += tagByteLength;
-            System.arraycopy(cellView.getCheckXorReference(), 0, plaintext, offset, checkByteLength);
-            return plaintext;
-        }
-        plaintext[0] = STATE_BLOCKED;
-        return plaintext;
     }
 
     private void checkLengths(BaSsuIbltSecureCellView cellView) {
@@ -146,38 +104,18 @@ class BaSsuIbltProductionUnionProbeCodec {
         }
     }
 
-    private byte[] mask(int bucketIndex, int byteLength) {
-        byte[] output = new byte[byteLength];
+    private byte[] opaqueCapsule(int bucketIndex) {
+        byte[] output = new byte[capsuleByteLength()];
         int offset = 0;
         int counter = 0;
-        while (offset < byteLength) {
-            byte[] block = digest(DOMAIN_MASK, bucketIndex, counter, maskSeed, new byte[0]);
-            int copyLength = Math.min(block.length, byteLength - offset);
+        while (offset < output.length) {
+            byte[] block = digest(DOMAIN_OPAQUE_CAPSULE, bucketIndex, counter, opaqueSeed, new byte[0]);
+            int copyLength = Math.min(block.length, output.length - offset);
             System.arraycopy(block, 0, output, offset, copyLength);
             offset += copyLength;
             counter++;
         }
         return output;
-    }
-
-    private static byte[] xor(byte[] left, byte[] right) {
-        if (left.length != right.length) {
-            throw new IllegalArgumentException("xor inputs must have equal length");
-        }
-        byte[] output = new byte[left.length];
-        for (int i = 0; i < left.length; i++) {
-            output[i] = (byte) (left[i] ^ right[i]);
-        }
-        return output;
-    }
-
-    private static boolean isZero(byte[] input) {
-        for (byte value : input) {
-            if (value != 0) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private static byte[] digest(byte domain, int index, int counter, byte[] seed, byte[] input) {

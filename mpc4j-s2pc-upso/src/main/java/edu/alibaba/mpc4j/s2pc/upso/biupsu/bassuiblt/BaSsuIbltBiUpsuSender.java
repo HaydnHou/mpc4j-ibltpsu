@@ -65,10 +65,10 @@ public class BaSsuIbltBiUpsuSender extends AbstractTwoPartyPto implements BiUpsu
     @Override
     public BiUpsuPartyOutput psu(Set<ByteBuffer> senderElementSet) throws MpcAbortException {
         checkInitialized();
-        MpcAbortPreconditions.checkArgument(
-            config.getProtocolMode() != BaSsuIbltProtocolMode.SECURE_SEMI_HONEST,
-            config.getProductionReadinessReason()
-        );
+        if (config.getProtocolMode() == BaSsuIbltProtocolMode.SECURE_SEMI_HONEST) {
+            BaSsuIbltBiUpsuProductionGate.checkEndpointReady(config);
+            return runSecureSemiHonest(senderElementSet);
+        }
         if (senderElementSet == null) {
             throw new IllegalArgumentException("senderElementSet must be non-null");
         }
@@ -94,6 +94,13 @@ public class BaSsuIbltBiUpsuSender extends AbstractTwoPartyPto implements BiUpsu
         List<byte[]> receiverLayerPayload = receiveOtherPartyPayload(PtoStep.RECEIVER_SEND_FIXED_LAYER.ordinal());
         return BaSsuIbltFixedLayerEndpoint.decodeAndPeel(
             senderElementSet, senderAnchor, senderLayerPayload, receiverLayerPayload, elementByteLength, params
+        );
+    }
+
+    private BiUpsuPartyOutput runSecureSemiHonest(Set<ByteBuffer> senderElementSet) throws MpcAbortException {
+        throw new MpcAbortException(
+            "SECURE_SEMI_HONEST endpoint execution requires the completed P36/P37/P38 production path; "
+                + "fixed-layer reference fallback is forbidden"
         );
     }
 }

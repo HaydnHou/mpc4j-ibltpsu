@@ -40,8 +40,12 @@ public class BaSsuIbltProductionUnionProbeLeakageTest {
         BaSsuIbltProductionUnionProbeBackendConfig config =
             new BaSsuIbltProductionUnionProbeBackendConfig.Builder().build();
         Assert.assertTrue(config.isSpecializedBucketProbe());
+        Assert.assertTrue(config.isLocalRemoteDecodeFree());
+        Assert.assertTrue(config.hasFixedShapeCapsules());
+        Assert.assertTrue(config.opensOnlySourceAgnosticOutput());
+        Assert.assertFalse(config.hasRemoteStateHidingEvaluator());
         Assert.assertFalse(config.isQueuePeelProductionReady());
-        Assert.assertTrue(config.getProductionReadinessReason().contains("local capsule decoding"));
+        Assert.assertTrue(config.getProductionReadinessReason().contains("local remote decoding is disabled"));
         Assert.assertFalse(config.getUnionProbeBackendName().toLowerCase().contains("production-ready"));
     }
 

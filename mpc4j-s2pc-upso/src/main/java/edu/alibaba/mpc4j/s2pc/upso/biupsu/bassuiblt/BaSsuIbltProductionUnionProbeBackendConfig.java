@@ -11,14 +11,15 @@ import edu.alibaba.mpc4j.s2pc.pcg.ot.cot.core.CoreCotFactory;
  * @author donghai hou
  * @date 2026/06/05
  */
-public class BaSsuIbltProductionUnionProbeBackendConfig extends AbstractMultiPartyPtoConfig
+public final class BaSsuIbltProductionUnionProbeBackendConfig extends AbstractMultiPartyPtoConfig
     implements BaSsuIbltUnionProbeBackendConfig {
     /**
-     * fail-closed reason until the local decode scaffold is replaced with real UP-BA-UPOT.
+     * fail-closed reason until the true remote-state-hiding evaluator is implemented.
      */
     public static final String NOT_PRODUCTION_READY_REASON =
-        "specialized union-probe candidate still uses local capsule decoding; production requires true "
-            + "COT/ROT-backed UP-BA-UPOT that never materializes the remote bucket state";
+        "specialized union-probe fixed-shape capsule boundary is present as an opaque fail-closed placeholder and "
+            + "main-code local remote decoding is disabled, but production still requires a true COT/ROT-backed "
+            + "UP-BA-UPOT evaluator that never materializes the remote bucket state";
     /**
      * default auth tag byte length.
      */
@@ -137,6 +138,42 @@ public class BaSsuIbltProductionUnionProbeBackendConfig extends AbstractMultiPar
         );
     }
 
+    /**
+     * Returns whether the main production code contains no local opener for remote capsules.
+     *
+     * @return true if the production capsule boundary has no local remote decode path.
+     */
+    public boolean isLocalRemoteDecodeFree() {
+        return true;
+    }
+
+    /**
+     * Returns whether all external probe capsules have fixed public length.
+     *
+     * @return true if capsules are fixed-shape.
+     */
+    public boolean hasFixedShapeCapsules() {
+        return true;
+    }
+
+    /**
+     * Returns whether the public output type is restricted to bottom or source-agnostic singleton.
+     *
+     * @return true if only source-agnostic output is exposed.
+     */
+    public boolean opensOnlySourceAgnosticOutput() {
+        return true;
+    }
+
+    /**
+     * Returns whether the current implementation has a true remote-state-hiding evaluator.
+     *
+     * @return false until the evaluator is implemented.
+     */
+    public boolean hasRemoteStateHidingEvaluator() {
+        return false;
+    }
+
     @Override
     public String getUnionProbeBackendName() {
         return "specialized UP-BA-UPOT bucket-probe candidate";
@@ -149,7 +186,8 @@ public class BaSsuIbltProductionUnionProbeBackendConfig extends AbstractMultiPar
 
     @Override
     public boolean isQueuePeelProductionReady() {
-        return false;
+        return isLocalRemoteDecodeFree() && hasFixedShapeCapsules() && opensOnlySourceAgnosticOutput()
+            && hasRemoteStateHidingEvaluator();
     }
 
     public String getProductionReadinessReason() {

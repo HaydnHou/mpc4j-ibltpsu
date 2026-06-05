@@ -103,12 +103,18 @@ public class BaSsuIbltSecureFairBenchmarkTest {
         Assert.assertTrue(line.endsWith("\t" + BaSsuIbltSecureFairBenchmark.SECURITY_NOTICE_ID));
         Assert.assertTrue(header.contains("\thistoricalTargetOnePassLowerBoundBuckets\t"));
         Assert.assertTrue(header.contains("\tqueuePeelBuckets\t"));
-        Assert.assertTrue(header.contains("\tqueuePeelVsH5ProbeRatio\t"));
+        Assert.assertTrue(header.contains("\tqueuePeelVsH5EstimatedProbeRatio\t"));
+        Assert.assertTrue(header.contains("\tcurrentM14aOfflineTotalBytes\t"));
+        Assert.assertTrue(header.contains("\thistoricalTargetOnePassOfflineTotalBytes\t"));
         Assert.assertTrue(header.contains("\tqueuePeelOfflineTotalBytes\t"));
         Assert.assertTrue(header.contains("\tqueuePeelOnlineTotalBytes\t"));
+        Assert.assertTrue(header.contains("\tbenchmarkKind\t"));
+        Assert.assertTrue(header.contains("\tmeasuredProduction\t"));
+        Assert.assertTrue(header.contains("\tbaselineName\t"));
         Assert.assertTrue(header.contains("\tproductionReady\t"));
         Assert.assertTrue(header.contains("\tretryStatus\t"));
-        Assert.assertTrue(line.contains("\tfalse\t"
+        Assert.assertTrue(line.contains("\t" + BaSsuIbltSecureFairBenchmark.BENCHMARK_KIND_ESTIMATE + "\tfalse\t"
+            + BaSsuIbltSecureFairBenchmark.H5_BASELINE_NAME + "\tfalse\t"
             + BaSsuIbltSecureFairBenchmark.QUEUE_PEEL_ESTIMATE_RETRY_STATUS + "\t"));
         Assert.assertEquals(header.split("\t").length, line.split("\t").length);
     }
@@ -129,22 +135,32 @@ public class BaSsuIbltSecureFairBenchmarkTest {
         Assert.assertEquals(result.getOfflineBytes() + result.getOnlineBytes(), result.getTotalBytes());
         Assert.assertEquals(result.getOfflineTimeNanos() + result.getOnlineTimeNanos(), result.getTotalTimeNanos());
         Assert.assertFalse(result.isProductionReady());
+        Assert.assertFalse(result.isMeasuredProduction());
+        Assert.assertEquals(BaSsuIbltSecureFairBenchmark.BENCHMARK_KIND_ESTIMATE, result.getBenchmarkKind());
+        Assert.assertEquals(BaSsuIbltSecureFairBenchmark.H5_BASELINE_NAME, result.getBaselineName());
         Assert.assertEquals(BaSsuIbltSecureFairBenchmark.SECURITY_NOTICE, result.getSecurityNotice());
         Assert.assertEquals(BaSsuIbltSecureFairBenchmark.QUEUE_PEEL_ESTIMATE_RETRY_STATUS, result.getRetryStatus());
         Assert.assertTrue(result.getQueuePeelVsH5ProbeRatio() < 1.0);
+        Assert.assertEquals(result.getQueuePeelVsH5ProbeRatio(), result.getQueuePeelVsH5EstimatedProbeRatio(), 0.0);
         Assert.assertTrue(result.toDisplayString().contains("QUEUE_PEEL_ALIGNED"));
+        Assert.assertTrue(result.toDisplayString().contains("benchmarkKind=ESTIMATE"));
+        Assert.assertTrue(result.toDisplayString().contains("measuredProduction=false"));
         Assert.assertTrue(result.toDisplayString().contains("productionReady=false"));
+        Assert.assertTrue(result.toDisplayString().contains(
+            "baselineName=" + BaSsuIbltSecureFairBenchmark.H5_BASELINE_NAME
+        ));
         Assert.assertTrue(result.toDisplayString().contains(
             "retryStatus=" + BaSsuIbltSecureFairBenchmark.QUEUE_PEEL_ESTIMATE_RETRY_STATUS
         ));
         Assert.assertTrue(result.toDisplayString().contains("offlineTimeMs="));
         Assert.assertTrue(result.toDisplayString().contains("onlineTimeMs="));
         Assert.assertTrue(result.toDisplayString().contains("totalTimeMs="));
-        Assert.assertTrue(result.toDisplayString().contains("offlineBytes="));
-        Assert.assertTrue(result.toDisplayString().contains("onlineBytes="));
+        Assert.assertTrue(result.toDisplayString().contains("offlineTotalBytes="));
+        Assert.assertTrue(result.toDisplayString().contains("onlineTotalBytes="));
         Assert.assertTrue(result.toDisplayString().contains("totalBytes="));
         Assert.assertTrue(result.toDisplayString().contains("probeCount=248"));
         Assert.assertTrue(result.toDisplayString().contains("h5BucketProbes"));
+        Assert.assertTrue(result.toDisplayString().contains("queuePeelVsH5EstimatedProbeRatio"));
     }
 
     @Test

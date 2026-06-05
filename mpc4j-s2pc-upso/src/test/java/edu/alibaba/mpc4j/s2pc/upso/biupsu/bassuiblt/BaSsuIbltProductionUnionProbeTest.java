@@ -89,11 +89,10 @@ public class BaSsuIbltProductionUnionProbeTest {
     @Test
     public void testMalformedCapsuleRejected() {
         BaSsuIbltProductionUnionProbeBackendConfig config = config();
-        BaSsuIbltProductionUnionProbeCodec codec = new BaSsuIbltProductionUnionProbeCodec(config, SEED);
         BaSsuIbltProductionUnionProbeReferenceCodec referenceCodec =
             new BaSsuIbltProductionUnionProbeReferenceCodec(config, SEED);
-        BaSsuIbltProductionUnionProbeCapsule senderCapsule = codec.encode(9, singletonCell(element(15L)));
-        BaSsuIbltProductionUnionProbeCapsule receiverCapsule = codec.encode(9, emptyCell());
+        BaSsuIbltProductionUnionProbeCapsule senderCapsule = referenceCodec.encode(9, singletonCell(element(15L)));
+        BaSsuIbltProductionUnionProbeCapsule receiverCapsule = referenceCodec.encode(9, emptyCell());
         byte[] tampered = senderCapsule.getEncoded();
         tampered[tampered.length - 1] ^= 0x01;
         BaSsuIbltProductionUnionProbeCapsule badCapsule =
@@ -144,13 +143,12 @@ public class BaSsuIbltProductionUnionProbeTest {
     private static BaSsuIbltProductionUnionProbeOutput runProbe(BaSsuIbltSecureBucketInput input)
         throws MpcAbortException {
         BaSsuIbltProductionUnionProbeBackendConfig config = config();
-        BaSsuIbltProductionUnionProbeCodec codec = new BaSsuIbltProductionUnionProbeCodec(config, SEED);
         BaSsuIbltProductionUnionProbeReferenceCodec referenceCodec =
             new BaSsuIbltProductionUnionProbeReferenceCodec(config, SEED);
-        BaSsuIbltProductionUnionProbeCapsule anchorCapsule = codec.encode(
+        BaSsuIbltProductionUnionProbeCapsule anchorCapsule = referenceCodec.encode(
             input.getBucketIndex(), BaSsuIbltProductionUnionProbeLocalLayer.ANCHOR.select(input)
         );
-        BaSsuIbltProductionUnionProbeCapsule shadowCapsule = codec.encode(
+        BaSsuIbltProductionUnionProbeCapsule shadowCapsule = referenceCodec.encode(
             input.getBucketIndex(), BaSsuIbltProductionUnionProbeLocalLayer.SHADOW.select(input)
         );
         return referenceCodec.open(input.getBucketIndex(), anchorCapsule, shadowCapsule);

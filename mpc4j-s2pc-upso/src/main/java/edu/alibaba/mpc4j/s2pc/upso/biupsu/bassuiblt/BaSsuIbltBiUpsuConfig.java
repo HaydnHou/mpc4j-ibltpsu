@@ -235,9 +235,9 @@ public class BaSsuIbltBiUpsuConfig extends AbstractMultiPartyPtoConfig implement
                 "SECURE_SEMI_HONEST QUEUE_PEEL_ALIGNED requires a non-null union-probe BA-UPOT config"
             );
         }
-        if (!(unionProbeBackendConfig instanceof BaSsuIbltProductionUnionProbeBackendConfig)) {
+        if (unionProbeBackendConfig.getClass() != BaSsuIbltProductionUnionProbeBackendConfig.class) {
             throw new IllegalArgumentException(
-                "SECURE_SEMI_HONEST QUEUE_PEEL_ALIGNED requires the trusted production union-probe backend type; "
+                "SECURE_SEMI_HONEST QUEUE_PEEL_ALIGNED requires the exact trusted production union-probe backend type; "
                     + unionProbeBackendConfig.getUnionProbeBackendName() + " is not trusted"
             );
         }
@@ -248,9 +248,8 @@ public class BaSsuIbltBiUpsuConfig extends AbstractMultiPartyPtoConfig implement
             );
         }
         if (!unionProbeBackendConfig.isQueuePeelProductionReady()) {
-            String reason = unionProbeBackendConfig instanceof BaSsuIbltProductionUnionProbeBackendConfig
-                ? ((BaSsuIbltProductionUnionProbeBackendConfig) unionProbeBackendConfig).getProductionReadinessReason()
-                : "not production ready";
+            String reason = ((BaSsuIbltProductionUnionProbeBackendConfig) unionProbeBackendConfig)
+                .getProductionReadinessReason();
             throw new IllegalArgumentException(
                 "SECURE_SEMI_HONEST QUEUE_PEEL_ALIGNED requires a production-ready union-probe backend; "
                     + unionProbeBackendConfig.getUnionProbeBackendName() + " is not production ready: " + reason

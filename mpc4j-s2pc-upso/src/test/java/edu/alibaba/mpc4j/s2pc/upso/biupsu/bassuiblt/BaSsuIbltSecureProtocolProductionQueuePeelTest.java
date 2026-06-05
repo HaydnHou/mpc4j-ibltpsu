@@ -23,6 +23,7 @@ public class BaSsuIbltSecureProtocolProductionQueuePeelTest {
             ));
         Assert.assertTrue(abort.getMessage().contains("production-ready backend"));
         Assert.assertTrue(abort.getMessage().contains("fail-closed"));
+        Assert.assertTrue(abort.getMessage().contains("opaque fail-closed placeholder"));
     }
 
     @Test

@@ -59,6 +59,10 @@ public class BaSsuIbltQueuePeelBenchmark {
             return fairResult.getQueuePeelVsH5ProbeRatio();
         }
 
+        public double getQueuePeelVsH5EstimatedProbeRatio() {
+            return fairResult.getQueuePeelVsH5EstimatedProbeRatio();
+        }
+
         public long getQueuePeelOfflineBytes() {
             return fairResult.getQueuePeelOfflineBytes();
         }
@@ -89,6 +93,18 @@ public class BaSsuIbltQueuePeelBenchmark {
 
         public String getRetryStatus() {
             return fairResult.getQueuePeelRetryStatus();
+        }
+
+        public String getBenchmarkKind() {
+            return fairResult.getBenchmarkKind();
+        }
+
+        public boolean isMeasuredProduction() {
+            return fairResult.isMeasuredProduction();
+        }
+
+        public String getBaselineName() {
+            return fairResult.getBaselineName();
         }
 
         public boolean isProductionReady() {
@@ -128,25 +144,31 @@ public class BaSsuIbltQueuePeelBenchmark {
                 Locale.ROOT,
                 "BA-SSU-IBLT QUEUE_PEEL_ALIGNED benchmark estimate%n"
                     + "securityNotice=%s%n"
+                    + "benchmarkKind=%s%n"
+                    + "measuredProduction=%s%n"
                     + "productionReady=%s%n"
                     + "retryStatus=%s%n"
+                    + "baselineName=%s%n"
                     + "probeCount=%d%n"
                     + "offlineTimeMs=%.3f%n"
                     + "onlineTimeMs=%.3f%n"
                     + "totalTimeMs=%.3f%n"
-                    + "offlineBytes=%d%n"
-                    + "onlineBytes=%d%n"
+                    + "offlineTotalBytes=%d%n"
+                    + "onlineTotalBytes=%d%n"
                     + "totalBytes=%d%n"
                     + "queuePeelBuckets=%d%n"
                     + "h5BucketProbes=%d%n"
-                    + "queuePeelVsH5ProbeRatio=%.6f%n"
+                    + "queuePeelVsH5EstimatedProbeRatio=%.6f%n"
                     + "queuePeelOfflineTime=%.3f ms%n"
                     + "queuePeelOnlineTime=%.3f ms%n"
                     + "queuePeelOfflineBytes=%d%n"
                     + "queuePeelOnlineBytes=%d",
                 getSecurityNotice(),
+                getBenchmarkKind(),
+                isMeasuredProduction(),
                 isProductionReady(),
                 getRetryStatus(),
+                getBaselineName(),
                 getProbeCount(),
                 getOfflineTimeNanos() / 1_000_000.0,
                 getOnlineTimeNanos() / 1_000_000.0,
@@ -156,7 +178,7 @@ public class BaSsuIbltQueuePeelBenchmark {
                 getTotalBytes(),
                 getQueuePeelBuckets(),
                 getH5BucketProbes(),
-                getQueuePeelVsH5ProbeRatio(),
+                getQueuePeelVsH5EstimatedProbeRatio(),
                 getQueuePeelOfflineTimeNanos() / 1_000_000.0,
                 getQueuePeelOnlineTimeNanos() / 1_000_000.0,
                 getQueuePeelOfflineBytes(),

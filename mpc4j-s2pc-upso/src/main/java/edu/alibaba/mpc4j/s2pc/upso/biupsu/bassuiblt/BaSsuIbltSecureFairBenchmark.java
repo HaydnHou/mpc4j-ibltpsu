@@ -27,6 +27,14 @@ public class BaSsuIbltSecureFairBenchmark {
         + "union-probe accounting; production union-probe BA-UPOT is not implemented, so do not claim measured "
         + "secure speedup";
     /**
+     * benchmark kind for the current queue-peel report.
+     */
+    public static final String BENCHMARK_KIND_ESTIMATE = "ESTIMATE";
+    /**
+     * baseline accounting name.
+     */
+    public static final String H5_BASELINE_NAME = "H5_IBLT_PSU_BUCKET_PROBE_ESTIMATE";
+    /**
      * retry status label for queue-peel estimate reports.
      */
     public static final String QUEUE_PEEL_ESTIMATE_RETRY_STATUS = "estimate-public-retry-schedule";
@@ -542,8 +550,24 @@ public class BaSsuIbltSecureFairBenchmark {
             return ((double) queuePeelBuckets) / h5BucketProbes;
         }
 
+        public double getQueuePeelVsH5EstimatedProbeRatio() {
+            return getQueuePeelVsH5ProbeRatio();
+        }
+
         public boolean isProductionReady() {
             return false;
+        }
+
+        public boolean isMeasuredProduction() {
+            return false;
+        }
+
+        public String getBenchmarkKind() {
+            return BENCHMARK_KIND_ESTIMATE;
+        }
+
+        public String getBaselineName() {
+            return H5_BASELINE_NAME;
         }
 
         public String getQueuePeelRetryStatus() {
@@ -563,7 +587,7 @@ public class BaSsuIbltSecureFairBenchmark {
                 "h5Cells",
                 "h5BucketProbes",
                 "historicalTargetOnePassVsH5ProbeRatio",
-                "queuePeelVsH5ProbeRatio",
+                "queuePeelVsH5EstimatedProbeRatio",
                 "oprfOfflineMs",
                 "oprfOnlineMs",
                 "currentM14aOfflineMs",
@@ -572,12 +596,15 @@ public class BaSsuIbltSecureFairBenchmark {
                 "historicalTargetOnePassOnlineMs",
                 "queuePeelOfflineMs",
                 "queuePeelOnlineMs",
-                "currentM14aOfflineBytes",
-                "currentM14aOnlineBytes",
-                "historicalTargetOnePassOfflineBytes",
-                "historicalTargetOnePassOnlineBytes",
+                "currentM14aOfflineTotalBytes",
+                "currentM14aOnlineTotalBytes",
+                "historicalTargetOnePassOfflineTotalBytes",
+                "historicalTargetOnePassOnlineTotalBytes",
                 "queuePeelOfflineTotalBytes",
                 "queuePeelOnlineTotalBytes",
+                "benchmarkKind",
+                "measuredProduction",
+                "baselineName",
                 "productionReady",
                 "retryStatus",
                 "securityNotice"
@@ -588,7 +615,7 @@ public class BaSsuIbltSecureFairBenchmark {
             return String.format(
                 Locale.ROOT,
                 "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.6f\t%.6f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f"
-                    + "\t%.3f\t%.3f\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\t%s",
+                    + "\t%.3f\t%.3f\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s",
                 config.largeSize,
                 config.shadowSize,
                 config.overlap,
@@ -600,7 +627,7 @@ public class BaSsuIbltSecureFairBenchmark {
                 h5Cells,
                 h5BucketProbes,
                 getTargetOnePassVsH5ProbeRatio(),
-                getQueuePeelVsH5ProbeRatio(),
+                getQueuePeelVsH5EstimatedProbeRatio(),
                 oprfResult.getOfflineTimeNanos() / 1_000_000.0,
                 oprfResult.getOnlineTimeNanos() / 1_000_000.0,
                 getCurrentM14aOfflineTimeNanos() / 1_000_000.0,
@@ -615,6 +642,9 @@ public class BaSsuIbltSecureFairBenchmark {
                 getTargetOnePassOnlineTotalBytes(),
                 getQueuePeelOfflineTotalBytes(),
                 getQueuePeelOnlineTotalBytes(),
+                getBenchmarkKind(),
+                isMeasuredProduction(),
+                getBaselineName(),
                 isProductionReady(),
                 getQueuePeelRetryStatus(),
                 SECURITY_NOTICE_ID
@@ -626,29 +656,35 @@ public class BaSsuIbltSecureFairBenchmark {
                 Locale.ROOT,
                 "BA-SSU-IBLT secure-component fair benchmark%n"
                     + "securityNotice=%s%n"
+                    + "benchmarkKind=%s%n"
+                    + "measuredProduction=%s%n"
                     + "productionReady=%s%n"
                     + "retryStatus=%s%n"
+                    + "baselineName=%s%n"
                     + "large=%d, shadow=%d, overlap=%d, degree=%d, alpha=%.4f, retry=%d%n"
                     + "tableLength=%d, fixedRounds=%d%n"
                     + "h5Cells=%d, h5BucketProbes=%d%n"
                     + "historicalTargetOnePassLowerBoundBuckets=%d, "
                     + "historicalTargetOnePassVsH5ProbeRatio=%.6f%n"
-                    + "queuePeelBuckets=%d, queuePeelVsH5ProbeRatio=%.6f%n"
+                    + "queuePeelBuckets=%d, queuePeelVsH5EstimatedProbeRatio=%.6f%n"
                     + "currentM14aFixedLoopBuckets=%d%n"
                     + "oprfOfflineTime=%.3f ms, oprfOnlineTime=%.3f ms%n"
                     + "oprfOfflineBytes=%d, oprfOnlineBytes=%d%n"
                     + "m14aCapsuleBytesPerBucket=%d, targetBaUpotOnlineBytesPerBucket=%d, "
                     + "offlineCotBytesPerBucket=%d%n"
                     + "currentM14aOfflineTime=%.3f ms, currentM14aOnlineTime=%.3f ms%n"
-                    + "currentM14aOfflineBytes=%d, currentM14aOnlineBytes=%d%n"
+                    + "currentM14aOfflineTotalBytes=%d, currentM14aOnlineTotalBytes=%d%n"
                     + "historicalTargetOnePassOfflineTime=%.3f ms, "
                     + "historicalTargetOnePassOnlineTime=%.3f ms%n"
-                    + "historicalTargetOnePassOfflineBytes=%d, historicalTargetOnePassOnlineBytes=%d%n"
+                    + "historicalTargetOnePassOfflineTotalBytes=%d, historicalTargetOnePassOnlineTotalBytes=%d%n"
                     + "queuePeelOfflineTime=%.3f ms, queuePeelOnlineTime=%.3f ms%n"
                     + "queuePeelOfflineTotalBytes=%d, queuePeelOnlineTotalBytes=%d",
                 SECURITY_NOTICE,
+                getBenchmarkKind(),
+                isMeasuredProduction(),
                 isProductionReady(),
                 getQueuePeelRetryStatus(),
+                getBaselineName(),
                 config.largeSize,
                 config.shadowSize,
                 config.overlap,
@@ -662,7 +698,7 @@ public class BaSsuIbltSecureFairBenchmark {
                 targetOnePassBuckets,
                 getTargetOnePassVsH5ProbeRatio(),
                 queuePeelBuckets,
-                getQueuePeelVsH5ProbeRatio(),
+                getQueuePeelVsH5EstimatedProbeRatio(),
                 currentFixedLoopBuckets,
                 oprfResult.getOfflineTimeNanos() / 1_000_000.0,
                 oprfResult.getOnlineTimeNanos() / 1_000_000.0,
