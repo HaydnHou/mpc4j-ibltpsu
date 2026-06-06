@@ -12,15 +12,19 @@ import org.junit.Test;
 public class BaSsuIbltProductionUnionProbeRemoteHidingTest {
 
     @Test
-    public void testBackendReadinessRequiresRemoteStateHidingEvaluator() {
+    public void testBackendReadinessStillRequiresAdaptiveTranscriptPolicy() {
         BaSsuIbltProductionUnionProbeBackendConfig config =
             BaSsuIbltProductionUnionProbeTestUtils.config();
         Assert.assertTrue(config.isLocalRemoteDecodeFree());
         Assert.assertTrue(config.hasFixedShapeCapsules());
         Assert.assertTrue(config.opensOnlySourceAgnosticOutput());
-        Assert.assertFalse(config.hasRemoteStateHidingEvaluator());
+        Assert.assertTrue(config.hasRemoteStateHidingEvaluator());
+        Assert.assertFalse(config.hasAcceptedAdaptiveQueueTranscriptLeakage());
         Assert.assertFalse(config.isQueuePeelProductionReady());
-        Assert.assertTrue(config.getProductionReadinessReason().contains("remote bucket state"));
+        Assert.assertEquals(
+            BaSsuIbltProductionUnionProbeBackendConfig.PRODUCTION_AUDIT_NOT_READY_REASON,
+            config.getProductionReadinessReason()
+        );
     }
 
     @Test

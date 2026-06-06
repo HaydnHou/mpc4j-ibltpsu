@@ -11,6 +11,10 @@ import java.util.Set;
  */
 public class UpsuReceiverOutput {
     /**
+     * Unknown PSI-CA. Enhanced UPSU variants may intentionally hide the exact intersection cardinality.
+     */
+    public static final int UNKNOWN_PSICA = -1;
+    /**
      * union set
      */
     private final Set<ByteBuffer> unionSet;

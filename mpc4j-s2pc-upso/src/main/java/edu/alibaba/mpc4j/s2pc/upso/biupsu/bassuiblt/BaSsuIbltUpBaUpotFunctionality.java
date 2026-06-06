@@ -46,7 +46,10 @@ class BaSsuIbltUpBaUpotFunctionality {
         if (left == LocalSymbol.EMPTY && right == LocalSymbol.SINGLETON) {
             return ResultSymbol.SINGLETON;
         }
-        return sameSingleton ? ResultSymbol.SINGLETON : ResultSymbol.BOTTOM;
+        if (left == LocalSymbol.SINGLETON && right == LocalSymbol.SINGLETON && sameSingleton) {
+            return ResultSymbol.SINGLETON;
+        }
+        return ResultSymbol.BOTTOM;
     }
 
     /**

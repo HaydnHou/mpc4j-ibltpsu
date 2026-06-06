@@ -40,9 +40,9 @@
     </modules>
 
     <properties>
-        <!-- min JDK version is 17 since we need to use SIMD-->
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <!-- min JDK version is 21 since we need to use SIMD-->
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven.test.skip>true</maven.test.skip>
@@ -215,8 +215,6 @@
                     <source>${maven.compiler.source}</source>
                     <target>${maven.compiler.target}</target>
                     <compilerArgument>--add-modules=jdk.incubator.vector</compilerArgument>
-<!--                    if we want to introduce preview APIs like FFI, uncomment the following line-->
-                    <compilerArgs>--enable-preview</compilerArgs>
                 </configuration>
             </plugin>
             <plugin>

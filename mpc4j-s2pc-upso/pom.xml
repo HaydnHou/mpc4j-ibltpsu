@@ -12,8 +12,8 @@
     <artifactId>mpc4j-s2pc-upso</artifactId>
 
     <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
@@ -51,6 +51,11 @@
             <artifactId>mpc4j-s2pc-opf</artifactId>
             <version>1.1.5</version>
             <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>edu.alibaba</groupId>
+            <artifactId>mpc4j-s2pc-pso</artifactId>
+            <version>1.1.5</version>
         </dependency>
     </dependencies>
 

@@ -103,21 +103,22 @@ class BaSsuIbltSecureLayerBuilder {
         update(element, tag, check, false, false);
     }
 
-    public BaSsuIbltSecureBucketInput getBucketInput(int bucketIndex) {
+    public BaSsuIbltSecureCellView getAnchorCellView(int bucketIndex) {
         if (bucketIndex < 0 || bucketIndex >= cells.length) {
             throw new IllegalArgumentException("bucketIndex out of range");
         }
         return cells[bucketIndex] == null
-            ? BaSsuIbltSecureBucketInput.empty(bucketIndex, elementByteLength, tagByteLength, checkByteLength)
-            : cells[bucketIndex].toBucketInput(bucketIndex);
+            ? BaSsuIbltSecureCellView.empty(elementByteLength, tagByteLength, checkByteLength)
+            : cells[bucketIndex].anchorView();
     }
 
-    public BaSsuIbltSecureBucketInput[] getBucketInputs() {
-        BaSsuIbltSecureBucketInput[] inputs = new BaSsuIbltSecureBucketInput[cells.length];
-        for (int bucketIndex = 0; bucketIndex < cells.length; bucketIndex++) {
-            inputs[bucketIndex] = getBucketInput(bucketIndex);
+    public BaSsuIbltSecureCellView getShadowCellView(int bucketIndex) {
+        if (bucketIndex < 0 || bucketIndex >= cells.length) {
+            throw new IllegalArgumentException("bucketIndex out of range");
         }
-        return inputs;
+        return cells[bucketIndex] == null
+            ? BaSsuIbltSecureCellView.empty(elementByteLength, tagByteLength, checkByteLength)
+            : cells[bucketIndex].shadowView();
     }
 
     public int[] positions(byte[] element) {
@@ -270,8 +271,12 @@ class BaSsuIbltSecureLayerBuilder {
             return anchorSource ? anchor.canDelete() : shadow.canDelete();
         }
 
-        BaSsuIbltSecureBucketInput toBucketInput(int bucketIndex) {
-            return BaSsuIbltSecureBucketInput.of(bucketIndex, anchor.toView(), shadow.toView());
+        BaSsuIbltSecureCellView anchorView() {
+            return anchor.toView();
+        }
+
+        BaSsuIbltSecureCellView shadowView() {
+            return shadow.toView();
         }
     }
 

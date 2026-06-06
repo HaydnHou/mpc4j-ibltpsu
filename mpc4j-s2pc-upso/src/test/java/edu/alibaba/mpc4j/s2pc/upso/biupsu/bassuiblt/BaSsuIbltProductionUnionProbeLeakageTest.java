@@ -32,6 +32,8 @@ public class BaSsuIbltProductionUnionProbeLeakageTest {
         Assert.assertThrows(IllegalArgumentException.class,
             () -> new BaSsuIbltProductionUnionProbeBackendConfig.Builder().setAuthTagByteLength(0).build());
         Assert.assertThrows(IllegalArgumentException.class,
+            () -> new BaSsuIbltProductionUnionProbeBackendConfig.Builder().setCotNumPerProbe(2).build());
+        Assert.assertThrows(IllegalArgumentException.class,
             () -> new BaSsuIbltProductionUnionProbeBackendConfig.Builder().setOnlineBatchSize(0).build());
     }
 
@@ -43,10 +45,29 @@ public class BaSsuIbltProductionUnionProbeLeakageTest {
         Assert.assertTrue(config.isLocalRemoteDecodeFree());
         Assert.assertTrue(config.hasFixedShapeCapsules());
         Assert.assertTrue(config.opensOnlySourceAgnosticOutput());
-        Assert.assertFalse(config.hasRemoteStateHidingEvaluator());
+        Assert.assertTrue(config.hasRemoteStateHidingEvaluator());
         Assert.assertFalse(config.isQueuePeelProductionReady());
-        Assert.assertTrue(config.getProductionReadinessReason().contains("local remote decoding is disabled"));
+        Assert.assertEquals(
+            BaSsuIbltProductionUnionProbeBackendConfig.PRODUCTION_AUDIT_NOT_READY_REASON,
+            config.getProductionReadinessReason()
+        );
         Assert.assertFalse(config.getUnionProbeBackendName().toLowerCase().contains("production-ready"));
+    }
+
+    @Test
+    public void testOptInStillFailClosedUntilHardProductionGatesPass() {
+        BaSsuIbltProductionUnionProbeBackendConfig config =
+            new BaSsuIbltProductionUnionProbeBackendConfig.Builder()
+                .setAcceptAdaptiveQueueTranscriptLeakage(true)
+                .build();
+        Assert.assertTrue(config.isLocalRemoteDecodeFree());
+        Assert.assertTrue(config.hasQueuePeelEndpointIntegration());
+        Assert.assertTrue(config.opensOnlySourceAgnosticOutput());
+        Assert.assertFalse(config.isQueuePeelProductionReady());
+        Assert.assertEquals(
+            BaSsuIbltProductionUnionProbeBackendConfig.PRODUCTION_AUDIT_NOT_READY_REASON,
+            config.getProductionReadinessReason()
+        );
     }
 
     @Test
@@ -83,7 +104,7 @@ public class BaSsuIbltProductionUnionProbeLeakageTest {
             Assert.assertFalse(name.contains("okvs"));
             Assert.assertFalse(name.contains("pir"));
         }
-        Assert.assertEquals("BA_SSU_IBLT_PRODUCTION_UNION_PROBE",
+        Assert.assertEquals("BA_SSU_IBLT_PRODUCTION_UP_BA_UPOT",
             BaSsuIbltProductionUnionProbePtoDesc.getInstance().getPtoName());
     }
 

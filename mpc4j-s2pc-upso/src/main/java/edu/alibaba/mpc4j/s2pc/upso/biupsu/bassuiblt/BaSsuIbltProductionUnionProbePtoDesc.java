@@ -4,33 +4,53 @@ import edu.alibaba.mpc4j.common.rpc.desc.PtoDesc;
 import edu.alibaba.mpc4j.common.rpc.desc.PtoDescManager;
 
 /**
- * Production UP-BA-UPOT queue-probe protocol description.
+ * BA-SSU-IBLT production UP-BA-UPOT bucket-probe protocol description.
  *
  * @author donghai hou
  * @date 2026/06/05
  */
 class BaSsuIbltProductionUnionProbePtoDesc implements PtoDesc {
     /**
-     * protocol id.
+     * protocol ID.
      */
-    private static final int PTO_ID = Math.abs((int) 7642060509501739231L);
+    private static final int PTO_ID = 1469367218;
     /**
      * protocol name.
      */
-    private static final String PTO_NAME = "BA_SSU_IBLT_PRODUCTION_UNION_PROBE";
+    private static final String PTO_NAME = "BA_SSU_IBLT_PRODUCTION_UP_BA_UPOT";
 
     /**
-     * protocol steps.
+     * protocol step.
      */
     enum PtoStep {
         /**
-         * offline COT / ROT mask material.
+         * fixed offline COT / ROT material slot.
          */
         OFFLINE_COT,
         /**
-         * exchange one fixed-size masked capsule for a public bucket probe.
+         * receiver sends fixed-shape choice correction for the next precomputed COT slice.
+         */
+        ONLINE_CHOICE_CORRECTION,
+        /**
+         * sender sends one fixed-shape opaque probe capsule.
          */
         ONLINE_PROBE_CAPSULE,
+        /**
+         * receiver sends one fixed-shape public probe result.
+         */
+        ONLINE_FIXED_RESULT,
+        /**
+         * receiver sends fixed-shape choice corrections for a public probe batch.
+         */
+        ONLINE_CHOICE_CORRECTION_BATCH,
+        /**
+         * sender sends fixed-shape opaque probe capsules for a public probe batch.
+         */
+        ONLINE_PROBE_CAPSULE_BATCH,
+        /**
+         * receiver sends fixed-shape public probe results for a public probe batch.
+         */
+        ONLINE_FIXED_RESULT_BATCH,
     }
 
     /**

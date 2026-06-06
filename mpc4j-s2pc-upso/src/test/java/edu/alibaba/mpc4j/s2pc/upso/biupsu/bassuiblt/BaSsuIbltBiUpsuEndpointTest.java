@@ -236,16 +236,17 @@ public class BaSsuIbltBiUpsuEndpointTest {
             new BaSsuIbltProductionUnionProbeBackendConfig.Builder()
                 .setElementByteLength(ELEMENT_BYTE_LENGTH)
                 .build();
-        IllegalArgumentException abort = Assert.assertThrows(IllegalArgumentException.class,
-            () -> new BaSsuIbltBiUpsuConfig.Builder()
-                .setProtocolMode(BaSsuIbltProtocolMode.SECURE_SEMI_HONEST)
-                .setScheduleShape(BaSsuIbltProtocolSchedule.Shape.QUEUE_PEEL_ALIGNED)
-                .setOprfConfig(OprfFactory.createMpOprfDefaultConfig(SecurityModel.SEMI_HONEST))
-                .setUnionProbeBackendConfig(candidateBackend)
-                .build());
-        Assert.assertTrue(abort.getMessage().contains("production-ready union-probe backend"));
-        Assert.assertTrue(abort.getMessage().contains("not production ready"));
-        Assert.assertTrue(abort.getMessage().contains("remote bucket state"));
+        BaSsuIbltBiUpsuConfig config = new BaSsuIbltBiUpsuConfig.Builder()
+            .setProtocolMode(BaSsuIbltProtocolMode.SECURE_SEMI_HONEST)
+            .setScheduleShape(BaSsuIbltProtocolSchedule.Shape.QUEUE_PEEL_ALIGNED)
+            .setOprfConfig(OprfFactory.createMpOprfDefaultConfig(SecurityModel.SEMI_HONEST))
+            .setUnionProbeBackendConfig(candidateBackend)
+            .build();
+        Assert.assertFalse(config.isProductionReady());
+        Assert.assertEquals(
+            BaSsuIbltProductionUnionProbeBackendConfig.PRODUCTION_AUDIT_NOT_READY_REASON,
+            config.getProductionReadinessReason()
+        );
     }
 
 
@@ -337,6 +338,40 @@ public class BaSsuIbltBiUpsuEndpointTest {
         Assert.assertFalse(config.isProductionReady());
         Assert.assertFalse(BaSsuIbltBiUpsuFactory.isProductionReady(config));
         Assert.assertTrue(config.getProductionReadinessReason().contains("endpoint adapter remains fail-closed"));
+    }
+
+    @Test
+    public void testSecureModeCannotUsePlainReferenceRunner() {
+        BaSsuIbltBiUpsuConfig config = new BaSsuIbltBiUpsuConfig.Builder()
+            .setProtocolMode(BaSsuIbltProtocolMode.SECURE_SEMI_HONEST)
+            .setOprfConfig(OprfFactory.createMpOprfDefaultConfig(SecurityModel.SEMI_HONEST))
+            .setSecureBaUpotConfig(new FakeObliviousBaUpotBackendConfig())
+            .build();
+        IllegalArgumentException abort = Assert.assertThrows(IllegalArgumentException.class,
+            () -> BaSsuIbltBiUpsuFactory.runPlainReference(
+                Set.of(element(1L)), Set.of(element(2L)), ELEMENT_BYTE_LENGTH, config
+            ));
+        Assert.assertTrue(abort.getMessage().contains("secure mode must not use the plain reference runner"));
+    }
+
+    @Test
+    public void testSecureEndpointGateRunsBeforeInputValidation() throws MpcAbortException {
+        RpcManager rpcManager = new MemoryRpcManager(2);
+        Rpc senderRpc = rpcManager.getRpc(0);
+        Rpc receiverRpc = rpcManager.getRpc(1);
+        BaSsuIbltBiUpsuConfig config = new BaSsuIbltBiUpsuConfig.Builder()
+            .setProtocolMode(BaSsuIbltProtocolMode.SECURE_SEMI_HONEST)
+            .setOprfConfig(OprfFactory.createMpOprfDefaultConfig(SecurityModel.SEMI_HONEST))
+            .setSecureBaUpotConfig(new FakeObliviousBaUpotBackendConfig())
+            .build();
+        BiUpsuSender sender = BiUpsuFactory.createSender(senderRpc, receiverRpc.ownParty(), config);
+        BiUpsuReceiver receiver = BiUpsuFactory.createReceiver(receiverRpc, senderRpc.ownParty(), config);
+        sender.init(1, 1, ELEMENT_BYTE_LENGTH);
+        receiver.init(1, 1, ELEMENT_BYTE_LENGTH);
+        MpcAbortException senderAbort = Assert.assertThrows(MpcAbortException.class, () -> sender.psu(null));
+        MpcAbortException receiverAbort = Assert.assertThrows(MpcAbortException.class, () -> receiver.psu(null));
+        Assert.assertTrue(senderAbort.getMessage().contains("endpoint adapter remains fail-closed"));
+        Assert.assertTrue(receiverAbort.getMessage().contains("endpoint adapter remains fail-closed"));
     }
 
     @Test

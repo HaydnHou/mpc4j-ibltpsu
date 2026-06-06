@@ -107,7 +107,8 @@ class BaSsuIbltProductionUnionProbeReferenceCodec {
             return BaSsuIbltProductionUnionProbeOutput.singleton(bucketIndex, shadow.element, elementByteLength);
         }
         if (anchor.state == STATE_SINGLETON && shadow.state == STATE_SINGLETON
-            && Arrays.equals(anchor.element, shadow.element) && Arrays.equals(anchor.tag, shadow.tag)
+            && Arrays.equals(anchor.element, shadow.element)
+            && Arrays.equals(anchor.tag, shadow.tag)
             && Arrays.equals(anchor.check, shadow.check)) {
             return BaSsuIbltProductionUnionProbeOutput.singleton(bucketIndex, anchor.element, elementByteLength);
         }

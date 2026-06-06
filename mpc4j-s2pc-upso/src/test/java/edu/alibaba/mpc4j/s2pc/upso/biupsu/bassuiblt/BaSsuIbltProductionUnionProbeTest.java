@@ -35,11 +35,26 @@ public class BaSsuIbltProductionUnionProbeTest {
     public void testConfigProductionGate() {
         BaSsuIbltProductionUnionProbeBackendConfig config = config();
         Assert.assertTrue(config.isSpecializedBucketProbe());
+        Assert.assertFalse(config.hasProductionAuditPassed());
+        Assert.assertFalse(config.hasNoReferenceFallbackCertificate());
+        Assert.assertFalse(config.hasMeasuredEndpointWired());
         Assert.assertFalse(config.isQueuePeelProductionReady());
         Assert.assertEquals(
-            BaSsuIbltProductionUnionProbeBackendConfig.NOT_PRODUCTION_READY_REASON,
+            BaSsuIbltProductionUnionProbeBackendConfig.PRODUCTION_AUDIT_NOT_READY_REASON,
             config.getProductionReadinessReason()
         );
+        BaSsuIbltProductionUnionProbeBackendConfig adaptiveConfig =
+            new BaSsuIbltProductionUnionProbeBackendConfig.Builder()
+                .setElementByteLength(ELEMENT_BYTE_LENGTH)
+                .setTagByteLength(TAG_BYTE_LENGTH)
+                .setCheckByteLength(CHECK_BYTE_LENGTH)
+                .setAcceptAdaptiveQueueTranscriptLeakage(true)
+                .build();
+        Assert.assertTrue(adaptiveConfig.hasAcceptedAdaptiveQueueTranscriptLeakage());
+        Assert.assertFalse(adaptiveConfig.hasProductionAuditPassed());
+        Assert.assertFalse(adaptiveConfig.hasNoReferenceFallbackCertificate());
+        Assert.assertFalse(adaptiveConfig.hasMeasuredEndpointWired());
+        Assert.assertFalse(adaptiveConfig.isQueuePeelProductionReady());
         Assert.assertEquals(12, config.cotNum(4));
         Assert.assertEquals(config.capsuleByteLength(),
             1 + ELEMENT_BYTE_LENGTH + TAG_BYTE_LENGTH + CHECK_BYTE_LENGTH + config.getAuthTagByteLength());
@@ -108,16 +123,20 @@ public class BaSsuIbltProductionUnionProbeTest {
         BaSsuIbltProductionUnionProbeBackendConfig config = config();
         BaSsuIbltSecureBucketInput bucketInput = input(10, singletonCell(element(16L)), emptyCell());
         BaSsuIbltProductionUnionProbeSender sender =
-            new BaSsuIbltProductionUnionProbeSender(config, SEED);
+            new BaSsuIbltProductionUnionProbeSender(
+                config, SEED, BaSsuIbltProductionUnionProbeTestUtils.schedule(1, 16)
+            );
         BaSsuIbltProductionUnionProbeSenderThread senderThread =
             new BaSsuIbltProductionUnionProbeSenderThread(sender, 10, bucketInput, 1, ELEMENT_BYTE_LENGTH);
         senderThread.start();
         senderThread.join();
-        if (senderThread.getException() != null) {
-            throw new AssertionError(senderThread.getException());
-        }
+        Assert.assertNotNull(senderThread.getException());
+        Assert.assertTrue(senderThread.getException().getMessage().contains("legacy bucket-only"));
+        Assert.assertNull(senderThread.getCapsule());
         BaSsuIbltProductionUnionProbeReceiver receiver =
-            new BaSsuIbltProductionUnionProbeReceiver(config, SEED);
+            new BaSsuIbltProductionUnionProbeReceiver(
+                config, SEED, BaSsuIbltProductionUnionProbeTestUtils.schedule(1, 16)
+            );
         BaSsuIbltProductionUnionProbeReceiverThread receiverThread =
             new BaSsuIbltProductionUnionProbeReceiverThread(
                 receiver, 10, bucketInput, senderThread.getCapsule(), 1, ELEMENT_BYTE_LENGTH
@@ -125,7 +144,7 @@ public class BaSsuIbltProductionUnionProbeTest {
         receiverThread.start();
         receiverThread.join();
         Assert.assertNotNull(receiverThread.getException());
-        Assert.assertTrue(receiverThread.getException().getMessage().contains("remote-state-hiding UP-BA-UPOT"));
+        Assert.assertTrue(receiverThread.getException().getMessage().contains("legacy bucket-only"));
         Assert.assertNull(receiverThread.getOutput());
     }
 
@@ -146,12 +165,20 @@ public class BaSsuIbltProductionUnionProbeTest {
         BaSsuIbltProductionUnionProbeReferenceCodec referenceCodec =
             new BaSsuIbltProductionUnionProbeReferenceCodec(config, SEED);
         BaSsuIbltProductionUnionProbeCapsule anchorCapsule = referenceCodec.encode(
-            input.getBucketIndex(), BaSsuIbltProductionUnionProbeLocalLayer.ANCHOR.select(input)
+            input.getBucketIndex(), select(input, BaSsuIbltProductionUnionProbeLocalLayer.ANCHOR)
         );
         BaSsuIbltProductionUnionProbeCapsule shadowCapsule = referenceCodec.encode(
-            input.getBucketIndex(), BaSsuIbltProductionUnionProbeLocalLayer.SHADOW.select(input)
+            input.getBucketIndex(), select(input, BaSsuIbltProductionUnionProbeLocalLayer.SHADOW)
         );
         return referenceCodec.open(input.getBucketIndex(), anchorCapsule, shadowCapsule);
+    }
+
+    private static BaSsuIbltSecureCellView select(BaSsuIbltSecureBucketInput input,
+                                                  BaSsuIbltProductionUnionProbeLocalLayer layer) {
+        return switch (layer) {
+            case ANCHOR -> input.getAnchor();
+            case SHADOW -> input.getShadow();
+        };
     }
 
     private static BaSsuIbltProductionUnionProbeBackendConfig config() {

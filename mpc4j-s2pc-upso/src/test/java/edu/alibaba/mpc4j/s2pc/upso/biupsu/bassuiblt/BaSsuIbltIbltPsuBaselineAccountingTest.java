@@ -16,10 +16,14 @@ public class BaSsuIbltIbltPsuBaselineAccountingTest {
         BaSsuIbltQueuePeelBenchmark.Result result =
             BaSsuIbltProductionBenchmarkOutputTest.sampleQueuePeelResult();
         Assert.assertEquals(BaSsuIbltSecureFairBenchmark.H5_BASELINE_NAME, result.getBaselineName());
+        Assert.assertTrue(result.getBaselineName().endsWith("_ESTIMATE"));
         Assert.assertTrue(result.getH5BucketProbes() > 0);
         Assert.assertTrue(result.getQueuePeelVsH5ProbeRatio() > 0.0);
         Assert.assertTrue(result.toDisplayString().contains(
             "baselineName=" + BaSsuIbltSecureFairBenchmark.H5_BASELINE_NAME
         ));
+        Assert.assertTrue(result.toDisplayString().contains("queuePeelVsH5EstimatedProbeRatio"));
+        Assert.assertFalse(result.toDisplayString().contains("queuePeelVsH5Measured"));
+        Assert.assertFalse(result.toDisplayString().contains("speedup="));
     }
 }

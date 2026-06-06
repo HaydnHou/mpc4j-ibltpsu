@@ -68,7 +68,7 @@ public class BaSsuIbltSecureFairBenchmarkTest {
         Assert.assertTrue(result.getCurrentM14aOnlineTotalBytes() > result.getTargetOnePassOnlineTotalBytes());
         Assert.assertTrue(result.getCurrentM14aOfflineTotalBytes() > result.getQueuePeelOfflineTotalBytes());
         Assert.assertTrue(result.getCurrentM14aOnlineTotalBytes() > result.getQueuePeelOnlineTotalBytes());
-        Assert.assertTrue(result.toDisplayString().contains(BaSsuIbltSecureFairBenchmark.SECURITY_NOTICE));
+        assertCurrentSecurityNotice(result.toDisplayString());
         Assert.assertTrue(result.toDisplayString().contains("historicalTargetOnePassLowerBoundBuckets=256"));
         Assert.assertTrue(result.toDisplayString().contains("queuePeelBuckets=472"));
     }
@@ -139,6 +139,7 @@ public class BaSsuIbltSecureFairBenchmarkTest {
         Assert.assertEquals(BaSsuIbltSecureFairBenchmark.BENCHMARK_KIND_ESTIMATE, result.getBenchmarkKind());
         Assert.assertEquals(BaSsuIbltSecureFairBenchmark.H5_BASELINE_NAME, result.getBaselineName());
         Assert.assertEquals(BaSsuIbltSecureFairBenchmark.SECURITY_NOTICE, result.getSecurityNotice());
+        assertCurrentSecurityNotice(result.getSecurityNotice());
         Assert.assertEquals(BaSsuIbltSecureFairBenchmark.QUEUE_PEEL_ESTIMATE_RETRY_STATUS, result.getRetryStatus());
         Assert.assertTrue(result.getQueuePeelVsH5ProbeRatio() < 1.0);
         Assert.assertEquals(result.getQueuePeelVsH5ProbeRatio(), result.getQueuePeelVsH5EstimatedProbeRatio(), 0.0);
@@ -180,5 +181,12 @@ public class BaSsuIbltSecureFairBenchmarkTest {
         Assert.assertThrows(IllegalArgumentException.class, () -> BaSsuIbltSecureFairBenchmark.Config.fromArgs(
             new String[]{"large=32", "shadow=8", "overlap=9"}
         ));
+    }
+
+    private static void assertCurrentSecurityNotice(String text) {
+        Assert.assertTrue(text.contains("RPC/Core-COT candidate endpoint"));
+        Assert.assertTrue(text.contains("not production-certified"));
+        Assert.assertTrue(text.contains("measured-production wired"));
+        Assert.assertFalse(text.contains("production union-probe BA-UPOT is not implemented"));
     }
 }

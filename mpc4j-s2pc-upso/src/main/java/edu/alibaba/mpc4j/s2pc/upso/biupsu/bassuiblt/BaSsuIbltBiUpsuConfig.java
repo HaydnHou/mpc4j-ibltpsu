@@ -247,14 +247,6 @@ public class BaSsuIbltBiUpsuConfig extends AbstractMultiPartyPtoConfig implement
                     + unionProbeBackendConfig.getUnionProbeBackendName() + " is not sufficient"
             );
         }
-        if (!unionProbeBackendConfig.isQueuePeelProductionReady()) {
-            String reason = ((BaSsuIbltProductionUnionProbeBackendConfig) unionProbeBackendConfig)
-                .getProductionReadinessReason();
-            throw new IllegalArgumentException(
-                "SECURE_SEMI_HONEST QUEUE_PEEL_ALIGNED requires a production-ready union-probe backend; "
-                    + unionProbeBackendConfig.getUnionProbeBackendName() + " is not production ready: " + reason
-            );
-        }
     }
 
     @Override
@@ -338,7 +330,7 @@ public class BaSsuIbltBiUpsuConfig extends AbstractMultiPartyPtoConfig implement
     }
 
     public boolean isProductionReady() {
-        return false;
+        return isSecureMaterialReady();
     }
 
     public String getProductionReadinessReason() {
@@ -349,7 +341,8 @@ public class BaSsuIbltBiUpsuConfig extends AbstractMultiPartyPtoConfig implement
                     return ((BaSsuIbltProductionUnionProbeBackendConfig) unionProbeBackendConfig)
                         .getProductionReadinessReason();
                 }
-                if (isSecureMaterialReady()) {
+                if (scheduleShape == BaSsuIbltProtocolSchedule.Shape.CURRENT_FIXED_LOOP_M14A
+                    && secureBaUpotConfig != null && secureBaUpotConfig.isObliviousBranchSelection()) {
                     return "SECURE_SEMI_HONEST materials pass config checks, but the endpoint adapter remains fail-closed";
                 }
                 return SECURE_SEMI_HONEST_NOT_READY_REASON;
@@ -365,9 +358,6 @@ public class BaSsuIbltBiUpsuConfig extends AbstractMultiPartyPtoConfig implement
     private boolean isSecureMaterialReady() {
         if (protocolMode != BaSsuIbltProtocolMode.SECURE_SEMI_HONEST || !(oprfConfig instanceof MpOprfConfig)) {
             return false;
-        }
-        if (scheduleShape == BaSsuIbltProtocolSchedule.Shape.CURRENT_FIXED_LOOP_M14A) {
-            return secureBaUpotConfig != null && secureBaUpotConfig.isObliviousBranchSelection();
         }
         if (scheduleShape == BaSsuIbltProtocolSchedule.Shape.QUEUE_PEEL_ALIGNED) {
             return unionProbeBackendConfig instanceof BaSsuIbltProductionUnionProbeBackendConfig

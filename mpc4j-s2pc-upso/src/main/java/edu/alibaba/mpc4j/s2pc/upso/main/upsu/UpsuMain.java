@@ -13,6 +13,7 @@ import edu.alibaba.mpc4j.s2pc.upso.upsu.UpsuConfig;
 import edu.alibaba.mpc4j.s2pc.upso.upsu.UpsuFactory;
 import edu.alibaba.mpc4j.s2pc.upso.upsu.UpsuReceiver;
 import edu.alibaba.mpc4j.s2pc.upso.upsu.UpsuSender;
+import edu.alibaba.mpc4j.s2pc.upso.upsu.pisiblt.PisIbltUpsuConfig;
 import org.bouncycastle.util.encoders.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -162,7 +163,8 @@ public class UpsuMain extends AbstractMainTwoPartyPto {
         upsuSender.setParallel(false);
         upsuSender.getRpc().synchronize();
         LOGGER.info("(warmup) {} init", upsuSender.ownParty().getPartyName());
-        upsuSender.init(WARMUP_SERVER_SET_SIZE, WARMUP_CLIENT_SET_SIZE);
+        int publicSenderSize = getPublicSenderSize(config, WARMUP_SERVER_SET_SIZE, WARMUP_CLIENT_SET_SIZE);
+        upsuSender.init(publicSenderSize, WARMUP_CLIENT_SET_SIZE);
         upsuSender.getRpc().synchronize();
         LOGGER.info("(warmup) {} execute", upsuSender.ownParty().getPartyName());
         upsuSender.psu(serverElementSet, WARMUP_ELEMENT_BYTE_LENGTH);
@@ -186,8 +188,9 @@ public class UpsuMain extends AbstractMainTwoPartyPto {
         upsuSender.getRpc().synchronize();
         upsuSender.getRpc().reset();
         LOGGER.info("{} init", upsuSender.ownParty().getPartyName());
+        int publicSenderSize = getPublicSenderSize(config, serverSetSize, clientSetSize);
         stopWatch.start();
-        upsuSender.init(serverSetSize, clientSetSize);
+        upsuSender.init(publicSenderSize, clientSetSize);
         stopWatch.stop();
         long initTime = stopWatch.getTime(TimeUnit.MILLISECONDS);
         stopWatch.reset();
@@ -276,10 +279,11 @@ public class UpsuMain extends AbstractMainTwoPartyPto {
         upsuReceiver.setParallel(false);
         upsuReceiver.getRpc().synchronize();
         LOGGER.info("(warmup) {} init", upsuReceiver.ownParty().getPartyName());
-        upsuReceiver.init(clientElementSet, WARMUP_SERVER_SET_SIZE, WARMUP_ELEMENT_BYTE_LENGTH);
+        int publicSenderSize = getPublicSenderSize(config, WARMUP_SERVER_SET_SIZE, WARMUP_CLIENT_SET_SIZE);
+        upsuReceiver.init(clientElementSet, publicSenderSize, WARMUP_ELEMENT_BYTE_LENGTH);
         upsuReceiver.getRpc().synchronize();
         LOGGER.info("(warmup) {} execute", upsuReceiver.ownParty().getPartyName());
-        upsuReceiver.psu(WARMUP_SERVER_SET_SIZE);
+        upsuReceiver.psu(publicSenderSize);
         upsuReceiver.getRpc().synchronize();
         upsuReceiver.getRpc().reset();
         upsuReceiver.destroy();
@@ -300,8 +304,9 @@ public class UpsuMain extends AbstractMainTwoPartyPto {
         upsuReceiver.getRpc().synchronize();
         upsuReceiver.getRpc().reset();
         LOGGER.info("{} init", upsuReceiver.ownParty().getPartyName());
+        int publicSenderSize = getPublicSenderSize(config, serverSetSize, clientSetSize);
         stopWatch.start();
-        upsuReceiver.init(clientElementSet, serverSetSize, elementByteLength);
+        upsuReceiver.init(clientElementSet, publicSenderSize, elementByteLength);
         stopWatch.stop();
         long initTime = stopWatch.getTime(TimeUnit.MILLISECONDS);
         stopWatch.reset();
@@ -312,7 +317,7 @@ public class UpsuMain extends AbstractMainTwoPartyPto {
         upsuReceiver.getRpc().reset();
         LOGGER.info("{} execute", upsuReceiver.ownParty().getPartyName());
         stopWatch.start();
-        upsuReceiver.psu(serverSetSize);
+        upsuReceiver.psu(publicSenderSize);
         stopWatch.stop();
         long ptoTime = stopWatch.getTime(TimeUnit.MILLISECONDS);
         stopWatch.reset();
@@ -331,5 +336,12 @@ public class UpsuMain extends AbstractMainTwoPartyPto {
         upsuReceiver.getRpc().reset();
         upsuReceiver.destroy();
         LOGGER.info("{} finish", upsuReceiver.ownParty().getPartyName());
+    }
+
+    private int getPublicSenderSize(UpsuConfig config, int senderSetSize, int receiverSetSize) {
+        if (config instanceof PisIbltUpsuConfig) {
+            return ((PisIbltUpsuConfig) config).createParams(senderSetSize, receiverSetSize).getSenderCapacity();
+        }
+        return senderSetSize;
     }
 }

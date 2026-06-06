@@ -40,9 +40,9 @@ public class BaSsuIbltSecureLayerBuilderTest {
 
         long anchorCountSum = 0L;
         long shadowCountSum = 0L;
-        for (BaSsuIbltSecureBucketInput bucketInput : builder.getBucketInputs()) {
-            anchorCountSum += bucketInput.getAnchor().getCount();
-            shadowCountSum += bucketInput.getShadow().getCount();
+        for (int bucketIndex = 0; bucketIndex < builder.getTableLength(); bucketIndex++) {
+            anchorCountSum += builder.getAnchorCellView(bucketIndex).getCount();
+            shadowCountSum += builder.getShadowCellView(bucketIndex).getCount();
         }
         Assert.assertEquals(2L * params.getDegree(), anchorCountSum);
         Assert.assertEquals(0L, shadowCountSum);
@@ -60,12 +60,13 @@ public class BaSsuIbltSecureLayerBuilderTest {
         builder.insertAnchors(fixedInputs, activeFlags, tagOutput);
 
         for (int position : builder.positions(fixedInputs[0])) {
-            BaSsuIbltSecureBucketInput bucketInput = builder.getBucketInput(position);
-            Assert.assertEquals(1, bucketInput.getAnchor().getCount());
-            Assert.assertArrayEquals(new byte[ELEMENT_BYTE_LENGTH], bucketInput.getAnchor().getKeyXor());
-            Assert.assertArrayEquals(tagOutput.getTag(0), bucketInput.getAnchor().getTagXor());
-            Assert.assertTrue(bucketInput.getAnchor().isValidSingleton());
-            Assert.assertEquals(0, bucketInput.getShadow().getCount());
+            BaSsuIbltSecureCellView anchor = builder.getAnchorCellView(position);
+            BaSsuIbltSecureCellView shadow = builder.getShadowCellView(position);
+            Assert.assertEquals(1, anchor.getCount());
+            Assert.assertArrayEquals(new byte[ELEMENT_BYTE_LENGTH], anchor.getKeyXor());
+            Assert.assertArrayEquals(tagOutput.getTag(0), anchor.getTagXor());
+            Assert.assertTrue(anchor.isValidSingleton());
+            Assert.assertEquals(0, shadow.getCount());
         }
     }
 
@@ -82,7 +83,7 @@ public class BaSsuIbltSecureLayerBuilderTest {
         builder.insertShadows(shadowInputs, tagOutput(shadowInputs));
 
         for (int position : builder.positions(common)) {
-            BaSsuIbltSecureBucketInput bucketInput = builder.getBucketInput(position);
+            BaSsuIbltSecureBucketInput bucketInput = referenceBucketInput(builder, position);
             Assert.assertTrue(bucketInput.isSharedSingleton());
             Assert.assertFalse(bucketInput.isCrossLayerBlocking());
             Assert.assertArrayEquals(bucketInput.getAnchor().getTagXor(), bucketInput.getShadow().getTagXor());
@@ -102,7 +103,8 @@ public class BaSsuIbltSecureLayerBuilderTest {
         builder.deleteAnchor(fixedInputs[0], tagOutput.getTag(0), tagOutput.getCheck(0));
 
         for (int position : builder.positions(fixedInputs[0])) {
-            Assert.assertTrue(builder.getBucketInput(position).isEmpty());
+            Assert.assertEquals(0, builder.getAnchorCellView(position).getCount());
+            Assert.assertEquals(0, builder.getShadowCellView(position).getCount());
         }
     }
 
@@ -122,7 +124,7 @@ public class BaSsuIbltSecureLayerBuilderTest {
         byte[][] beforeTags = new byte[touchedPositions.length][];
         byte[][] beforeChecks = new byte[touchedPositions.length][];
         for (int index = 0; index < touchedPositions.length; index++) {
-            BaSsuIbltSecureCellView anchor = builder.getBucketInput(touchedPositions[index]).getAnchor();
+            BaSsuIbltSecureCellView anchor = builder.getAnchorCellView(touchedPositions[index]);
             beforeKeys[index] = anchor.getKeyXor();
             beforeTags[index] = anchor.getTagXor();
             beforeChecks[index] = anchor.getCheckXor();
@@ -132,7 +134,7 @@ public class BaSsuIbltSecureLayerBuilderTest {
         Assert.assertThrows(IllegalStateException.class,
             () -> builder.deleteAnchor(failedInputs[0], failedTagOutput.getTag(0), failedTagOutput.getCheck(0)));
         for (int index = 0; index < touchedPositions.length; index++) {
-            BaSsuIbltSecureCellView anchor = builder.getBucketInput(touchedPositions[index]).getAnchor();
+            BaSsuIbltSecureCellView anchor = builder.getAnchorCellView(touchedPositions[index]);
             Assert.assertEquals(1, anchor.getCount());
             Assert.assertArrayEquals(beforeKeys[index], anchor.getKeyXor());
             Assert.assertArrayEquals(beforeTags[index], anchor.getTagXor());
@@ -177,7 +179,8 @@ public class BaSsuIbltSecureLayerBuilderTest {
             () -> builder.insertAnchors(fixedInputs, wrongTagLengthOutput));
         Assert.assertThrows(IllegalStateException.class,
             () -> builder.deleteAnchor(element(99L), tagOutput.getTag(0), tagOutput.getCheck(0)));
-        Assert.assertThrows(IllegalArgumentException.class, () -> builder.getBucketInput(-1));
+        Assert.assertThrows(IllegalArgumentException.class, () -> builder.getAnchorCellView(-1));
+        Assert.assertThrows(IllegalArgumentException.class, () -> builder.getShadowCellView(-1));
     }
 
     private static BaSsuIbltBiUpsuParams params() {
@@ -210,6 +213,13 @@ public class BaSsuIbltSecureLayerBuilderTest {
         byte[] bytes = new byte[byteLength];
         Arrays.fill(bytes, value);
         return bytes;
+    }
+
+    private static BaSsuIbltSecureBucketInput referenceBucketInput(
+        BaSsuIbltSecureLayerBuilder builder, int bucketIndex) {
+        return BaSsuIbltSecureBucketInput.of(
+            bucketIndex, builder.getAnchorCellView(bucketIndex), builder.getShadowCellView(bucketIndex)
+        );
     }
 
     private static byte[] findPartiallyOverlappingElement(BaSsuIbltBiUpsuParams params, byte[] insertedElement) {

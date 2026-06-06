@@ -14,12 +14,5 @@ enum BaSsuIbltProductionUnionProbeLocalLayer {
     /**
      * shadow source layer.
      */
-    SHADOW;
-
-    BaSsuIbltSecureCellView select(BaSsuIbltSecureBucketInput bucketInput) {
-        return switch (this) {
-            case ANCHOR -> bucketInput.getAnchor();
-            case SHADOW -> bucketInput.getShadow();
-        };
-    }
+    SHADOW
 }

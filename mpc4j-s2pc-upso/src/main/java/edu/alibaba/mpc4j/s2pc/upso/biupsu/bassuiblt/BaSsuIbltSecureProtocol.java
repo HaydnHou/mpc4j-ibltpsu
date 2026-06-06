@@ -1,6 +1,9 @@
 package edu.alibaba.mpc4j.s2pc.upso.biupsu.bassuiblt;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -23,6 +26,13 @@ import java.util.stream.Collectors;
  * @date 2026/06/04
  */
 class BaSsuIbltSecureProtocol {
+    /**
+     * queue-peel UP-BA-UPOT auth domain.
+     */
+    private static final byte[] QUEUE_PEEL_AUTH_DOMAIN = new byte[]{
+        'B', 'A', '-', 'S', 'S', 'U', '-', 'Q', 'P', '-', 'A', 'U', 'T', 'H'
+    };
+
     /**
      * private constructor.
      */
@@ -116,7 +126,7 @@ class BaSsuIbltSecureProtocol {
 
         Map<ByteKey, TagPair> anchorTagMap = tagMap(anchorInputs, anchorActiveFlags, anchorTagOutput, elementByteLength);
         Map<ByteKey, TagPair> shadowTagMap = tagMap(shadowInputs, shadowActiveFlags, shadowTagOutput, elementByteLength);
-        QueuePeelUnionProbe unionProbe = input -> BaUnionPeelOtSecureEvaluator.evaluate(input);
+        QueuePeelUnionProbe unionProbe = (context, input) -> BaUnionPeelOtSecureEvaluator.evaluate(input);
         TreeSet<ByteKey> selectedPeeled = new TreeSet<>();
         boolean success = false;
         long actualProbeCount = 0L;
@@ -163,6 +173,81 @@ class BaSsuIbltSecureProtocol {
         );
     }
 
+    static BaSsuIbltSecureProtocolResult runQueuePeelAlignedLocalBridgeCore(
+        Set<ByteBuffer> leftSet, Set<ByteBuffer> rightSet, int elementByteLength, BaSsuIbltBiUpsuParams params,
+        byte[][] leftFixedInputs, boolean[] leftActiveFlags, BaSsuIbltOprfTagOutput leftTagOutput,
+        byte[][] rightFixedInputs, boolean[] rightActiveFlags, BaSsuIbltOprfTagOutput rightTagOutput,
+        BaSsuIbltProductionUnionProbeBackendConfig productionConfig,
+        BaSsuIbltUpBaUpotOfflineSchedule upotSchedule) {
+        if (params == null) {
+            throw new IllegalArgumentException("params must be non-null");
+        }
+        if (productionConfig == null) {
+            throw new IllegalArgumentException("productionConfig must be non-null");
+        }
+        if (upotSchedule == null) {
+            throw new IllegalArgumentException("upotSchedule must be non-null");
+        }
+        BaSsuIbltProtocolSchedule schedule = BaSsuIbltProtocolSchedule.queuePeelAligned(params);
+        Set<ByteKey> left = normalizeSet(leftSet, elementByteLength);
+        Set<ByteKey> right = normalizeSet(rightSet, elementByteLength);
+        Set<ByteKey> leftActive = activeSet(leftFixedInputs, leftActiveFlags, elementByteLength);
+        Set<ByteKey> rightActive = activeSet(rightFixedInputs, rightActiveFlags, elementByteLength);
+        if (!left.equals(leftActive)) {
+            throw new IllegalArgumentException("left active fixed inputs must equal leftSet");
+        }
+        if (!right.equals(rightActive)) {
+            throw new IllegalArgumentException("right active fixed inputs must equal rightSet");
+        }
+        boolean leftAnchor = left.size() >= right.size();
+        Set<ByteKey> anchorSet = leftAnchor ? left : right;
+        Set<ByteKey> shadowSet = leftAnchor ? right : left;
+        byte[][] anchorInputs = leftAnchor ? leftFixedInputs : rightFixedInputs;
+        boolean[] anchorActiveFlags = leftAnchor ? leftActiveFlags : rightActiveFlags;
+        BaSsuIbltOprfTagOutput anchorTagOutput = leftAnchor ? leftTagOutput : rightTagOutput;
+        byte[][] shadowInputs = leftAnchor ? rightFixedInputs : leftFixedInputs;
+        boolean[] shadowActiveFlags = leftAnchor ? rightActiveFlags : leftActiveFlags;
+        BaSsuIbltOprfTagOutput shadowTagOutput = leftAnchor ? rightTagOutput : leftTagOutput;
+        checkCapacity(anchorSet.size(), shadowSet.size(), params);
+
+        Map<ByteKey, TagPair> anchorTagMap = tagMap(anchorInputs, anchorActiveFlags, anchorTagOutput, elementByteLength);
+        Map<ByteKey, TagPair> shadowTagMap = tagMap(shadowInputs, shadowActiveFlags, shadowTagOutput, elementByteLength);
+        BaSsuIbltUpBaUpotAuthMaterialProvider authProvider = cellAuthProvider();
+        TreeSet<ByteKey> selectedPeeled = new TreeSet<>();
+        boolean success = false;
+        long actualProbeCount = 0L;
+        long retryProbeCap = perRetryQueuePeelProbeCap(params);
+        List<BaSsuIbltQueuePeelRetryStatus> retryStatuses = new ArrayList<>(params.getRetryCount());
+        for (int retryIndex = 0; retryIndex < params.getRetryCount(); retryIndex++) {
+            if (success) {
+                retryStatuses.add(BaSsuIbltQueuePeelRetryStatus.notRunAfterSuccess(retryIndex, retryProbeCap));
+                continue;
+            }
+            RetryResult retryResult = runProductionQueuePeelRetry(
+                params, retryIndex, elementByteLength, anchorSet, shadowSet, anchorInputs, anchorActiveFlags,
+                anchorTagOutput, shadowInputs, shadowActiveFlags, shadowTagOutput, anchorTagMap, shadowTagMap,
+                productionConfig, upotSchedule, authProvider, authProvider
+            );
+            actualProbeCount = Math.addExact(actualProbeCount, retryResult.probeCount);
+            retryStatuses.add(BaSsuIbltQueuePeelRetryStatus.executed(
+                retryIndex, retryResult.success, retryResult.probeCount, retryProbeCap
+            ));
+            if (retryResult.success) {
+                selectedPeeled.addAll(retryResult.peeled);
+                success = true;
+            }
+        }
+        if (!success) {
+            selectedPeeled.clear();
+        }
+        Set<ByteBuffer> leftUnion = unionOutput(left, selectedPeeled);
+        Set<ByteBuffer> rightUnion = unionOutput(right, selectedPeeled);
+        return new BaSsuIbltSecureProtocolResult(
+            success, schedule.getFixedRoundCount(), schedule.getScheduledBucketCount(), actualProbeCount,
+            schedule.getShape(), retryStatuses, selectedPeeled.size(), leftUnion, rightUnion
+        );
+    }
+
     private static RetryResult runRetry(
         BaSsuIbltBiUpsuParams params, int retryIndex, int fixedRoundCount, int elementByteLength,
         Set<ByteKey> anchorSet, Set<ByteKey> shadowSet, byte[][] anchorInputs, boolean[] anchorActiveFlags,
@@ -180,7 +265,9 @@ class BaSsuIbltSecureProtocol {
         for (int round = 0; round < fixedRoundCount; round++) {
             TreeSet<ByteKey> roundCandidates = new TreeSet<>();
             for (int bucketIndex = 0; bucketIndex < params.getTableLength(); bucketIndex++) {
-                BaUpotBucketOutput output = BaUnionPeelOtSecureEvaluator.evaluate(builder.getBucketInput(bucketIndex));
+                BaUpotBucketOutput output = BaUnionPeelOtSecureEvaluator.evaluate(
+                    referenceBucketInput(builder, bucketIndex)
+                );
                 if (output.isSingleton()) {
                     ByteKey outputKey = new ByteKey(output.getElementReference());
                     if (!peeled.contains(outputKey)) {
@@ -231,8 +318,12 @@ class BaSsuIbltSecureProtocol {
                 return new RetryResult(false, peeled, probeCount);
             }
             int bucketIndex = queue.removeFirst();
+            int probeOrdinal = Math.toIntExact(probeCount);
             probeCount++;
-            BaUpotBucketOutput output = unionProbe.probe(builder.getBucketInput(bucketIndex));
+            BaSsuIbltQueuePeelProbeContext context = new BaSsuIbltQueuePeelProbeContext(
+                retryIndex, bucketIndex, probeOrdinal
+            );
+            BaUpotBucketOutput output = unionProbe.probe(context, referenceBucketInput(builder, bucketIndex));
             if (output.isSingleton()) {
                 ByteKey outputKey = new ByteKey(output.getElementReference());
                 if (!peeled.contains(outputKey)) {
@@ -250,6 +341,66 @@ class BaSsuIbltSecureProtocol {
                             queue.addLast(position);
                         }
                     }
+                }
+            }
+        }
+        return new RetryResult(anchorRemaining.isEmpty() && shadowRemaining.isEmpty(), peeled, probeCount);
+    }
+
+    private static RetryResult runProductionQueuePeelRetry(
+        BaSsuIbltBiUpsuParams params, int retryIndex, int elementByteLength, Set<ByteKey> anchorSet,
+        Set<ByteKey> shadowSet, byte[][] anchorInputs, boolean[] anchorActiveFlags,
+        BaSsuIbltOprfTagOutput anchorTagOutput, byte[][] shadowInputs, boolean[] shadowActiveFlags,
+        BaSsuIbltOprfTagOutput shadowTagOutput, Map<ByteKey, TagPair> anchorTagMap,
+        Map<ByteKey, TagPair> shadowTagMap, BaSsuIbltProductionUnionProbeBackendConfig productionConfig,
+        BaSsuIbltUpBaUpotOfflineSchedule upotSchedule,
+        BaSsuIbltUpBaUpotAuthMaterialProvider anchorAuthProvider,
+        BaSsuIbltUpBaUpotAuthMaterialProvider shadowAuthProvider) {
+        BaSsuIbltSecureLayerBuilder builder = BaSsuIbltSecureLayerBuilder.fromParams(
+            params, retryIndex, elementByteLength
+        );
+        builder.insertAnchors(anchorInputs, anchorActiveFlags, anchorTagOutput);
+        builder.insertShadows(shadowInputs, shadowActiveFlags, shadowTagOutput);
+        Set<ByteKey> anchorRemaining = new HashSet<>(anchorSet);
+        Set<ByteKey> shadowRemaining = new HashSet<>(shadowSet);
+        TreeSet<ByteKey> peeled = new TreeSet<>();
+        HashSet<ByteKey> deleted = new HashSet<>();
+        ArrayDeque<Integer> queue = new ArrayDeque<>(params.getTableLength());
+        for (int bucketIndex = 0; bucketIndex < params.getTableLength(); bucketIndex++) {
+            queue.addLast(bucketIndex);
+        }
+        long retryProbeCap = perRetryQueuePeelProbeCap(params);
+        long probeCount = 0L;
+        while (!queue.isEmpty()) {
+            if (probeCount == retryProbeCap) {
+                return new RetryResult(false, peeled, probeCount);
+            }
+            int bucketIndex = queue.removeFirst();
+            int probeOrdinal = Math.toIntExact(probeCount);
+            probeCount++;
+            BaSsuIbltQueuePeelProbeContext context = new BaSsuIbltQueuePeelProbeContext(
+                retryIndex, bucketIndex, probeOrdinal
+            );
+            BaSsuIbltProductionQueuePeelPartyLocalProbeInput anchorProbeInput =
+                BaSsuIbltProductionQueuePeelAdapter.partyLocalProbeInput(
+                    upotSchedule, context, builder.getAnchorCellView(bucketIndex),
+                    BaSsuIbltProductionUnionProbeLocalLayer.ANCHOR, anchorAuthProvider
+                );
+            BaSsuIbltProductionQueuePeelPartyLocalProbeInput shadowProbeInput =
+                BaSsuIbltProductionQueuePeelAdapter.partyLocalProbeInput(
+                    upotSchedule, context, builder.getShadowCellView(bucketIndex),
+                    BaSsuIbltProductionUnionProbeLocalLayer.SHADOW, shadowAuthProvider
+                );
+            BaSsuIbltProductionUnionProbeOutput output = BaSsuIbltProductionQueuePeelAdapter.executeProbe(
+                upotSchedule, anchorProbeInput, shadowProbeInput, productionConfig
+            );
+            if (output.isSingleton()) {
+                ByteKey outputKey = new ByteKey(output.getElement());
+                if (deleteProductionElement(
+                    outputKey, deleted, anchorRemaining, shadowRemaining, anchorTagMap, shadowTagMap, builder
+                )) {
+                    peeled.add(outputKey);
+                    enqueuePositions(queue, builder, outputKey);
                 }
             }
         }
@@ -302,6 +453,41 @@ class BaSsuIbltSecureProtocol {
         );
     }
 
+    private static boolean deleteProductionElement(
+        ByteKey element, Set<ByteKey> deleted, Set<ByteKey> anchorRemaining, Set<ByteKey> shadowRemaining,
+        Map<ByteKey, TagPair> anchorTagMap, Map<ByteKey, TagPair> shadowTagMap,
+        BaSsuIbltSecureLayerBuilder builder) {
+        if (deleted.contains(element)) {
+            return false;
+        }
+        boolean changed = deleteSourceIfPresent(
+            element, anchorRemaining, anchorTagMap,
+            (bytes, tag, check) -> builder.deleteAnchor(bytes, tag, check), "anchor"
+        );
+        changed |= deleteSourceIfPresent(
+            element, shadowRemaining, shadowTagMap,
+            (bytes, tag, check) -> builder.deleteShadow(bytes, tag, check), "shadow"
+        );
+        if (changed) {
+            deleted.add(element);
+        }
+        return changed;
+    }
+
+    private static void enqueuePositions(ArrayDeque<Integer> queue, BaSsuIbltSecureLayerBuilder builder,
+                                         ByteKey element) {
+        for (int position : builder.positions(element.bytes)) {
+            queue.addLast(position);
+        }
+    }
+
+    private static BaSsuIbltSecureBucketInput referenceBucketInput(
+        BaSsuIbltSecureLayerBuilder builder, int bucketIndex) {
+        return BaSsuIbltSecureBucketInput.of(
+            bucketIndex, builder.getAnchorCellView(bucketIndex), builder.getShadowCellView(bucketIndex)
+        );
+    }
+
     private static Map<ByteKey, TagPair> tagMap(byte[][] fixedInputs, boolean[] activeFlags,
                                                 BaSsuIbltOprfTagOutput tagOutput, int elementByteLength) {
         checkFixedInputs(fixedInputs, activeFlags, tagOutput, elementByteLength);
@@ -345,6 +531,65 @@ class BaSsuIbltSecureProtocol {
             if (input == null || input.length != elementByteLength) {
                 throw new IllegalArgumentException("each fixed input must have elementByteLength bytes");
             }
+        }
+    }
+
+    private static BaSsuIbltUpBaUpotAuthMaterialProvider cellAuthProvider() {
+        return (publicInput, ownLayer, ownCellView) -> {
+            if (publicInput == null || ownLayer == null || ownCellView == null) {
+                throw new IllegalArgumentException("auth inputs must be non-null");
+            }
+            return expandAuth(publicInput, ownCellView);
+        };
+    }
+
+    private static byte[] expandAuth(BaSsuIbltUpBaUpotPublicInput publicInput,
+                                     BaSsuIbltSecureCellView ownCellView) {
+        byte[] output = new byte[publicInput.getAuthTagByteLength()];
+        int offset = 0;
+        int counter = 0;
+        while (offset < output.length) {
+            MessageDigest digest = digest();
+            digest.update(QUEUE_PEEL_AUTH_DOMAIN);
+            updateBytes(digest, publicInput.getProfileId().getBytes(StandardCharsets.UTF_8));
+            updateInt(digest, publicInput.getRetryId());
+            updateInt(digest, publicInput.getBucketIndex());
+            updateInt(digest, publicInput.getProbeOrdinal());
+            updateInt(digest, publicInput.getElementByteLength());
+            updateInt(digest, publicInput.getTagBitLength());
+            updateInt(digest, publicInput.getCheckBitLength());
+            updateInt(digest, publicInput.getAuthTagBitLength());
+            updateInt(digest, ownCellView.getCount());
+            updateBytes(digest, ownCellView.getKeyXorReference());
+            updateBytes(digest, ownCellView.getTagXorReference());
+            updateBytes(digest, ownCellView.getCheckXorReference());
+            updateInt(digest, counter);
+            byte[] block = digest.digest();
+            int copyLength = Math.min(block.length, output.length - offset);
+            System.arraycopy(block, 0, output, offset, copyLength);
+            offset += copyLength;
+            counter++;
+        }
+        return output;
+    }
+
+    private static void updateBytes(MessageDigest digest, byte[] bytes) {
+        updateInt(digest, bytes.length);
+        digest.update(bytes);
+    }
+
+    private static void updateInt(MessageDigest digest, int value) {
+        digest.update((byte) (value >>> 24));
+        digest.update((byte) (value >>> 16));
+        digest.update((byte) (value >>> 8));
+        digest.update((byte) value);
+    }
+
+    private static MessageDigest digest() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is not available", e);
         }
     }
 
@@ -448,7 +693,7 @@ class BaSsuIbltSecureProtocol {
          * @param bucketInput bucket input.
          * @return bucket output.
          */
-        BaUpotBucketOutput probe(BaSsuIbltSecureBucketInput bucketInput);
+        BaUpotBucketOutput probe(BaSsuIbltQueuePeelProbeContext context, BaSsuIbltSecureBucketInput bucketInput);
     }
 
     /**

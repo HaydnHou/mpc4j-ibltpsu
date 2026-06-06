@@ -24,8 +24,8 @@ public class BaSsuIbltSecureFairBenchmark {
      * security notice.
      */
     public static final String SECURITY_NOTICE = "QUEUE_PEEL_ALIGNED estimate uses MP-OPRF and specialized "
-        + "union-probe accounting; production union-probe BA-UPOT is not implemented, so do not claim measured "
-        + "secure speedup";
+        + "union-probe accounting; the RPC/Core-COT candidate endpoint is not production-certified or "
+        + "measured-production wired, so do not claim measured secure speedup";
     /**
      * benchmark kind for the current queue-peel report.
      */

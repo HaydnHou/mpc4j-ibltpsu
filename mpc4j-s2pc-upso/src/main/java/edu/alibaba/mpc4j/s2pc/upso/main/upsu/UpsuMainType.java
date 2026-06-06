@@ -35,4 +35,8 @@ public enum UpsuMainType {
      * ZLP24 PEQT vectorized batch PIR + Permute + Share and OPRF Permute Matrix PEQT
      */
     ZLP24_PEQT_VECTORIZED_PIR_PS_OPRF,
+    /**
+     * PISF-IBLT enhanced UPSU
+     */
+    PIS_IBLT,
 }

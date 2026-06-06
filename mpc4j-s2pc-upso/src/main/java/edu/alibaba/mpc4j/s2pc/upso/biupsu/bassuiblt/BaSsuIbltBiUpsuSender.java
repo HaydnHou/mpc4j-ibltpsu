@@ -19,9 +19,9 @@ import static edu.alibaba.mpc4j.s2pc.upso.biupsu.bassuiblt.BaSsuIbltBiUpsuPtoDes
 /**
  * BA-SSU-IBLT bi-output UPSU sender.
  *
- * <p>This class exchanges fixed source-layer bucket payloads rather than raw element sets. It is still a reference
- * endpoint because singleton source-layer buckets reveal raw elements before Milestone 4 replaces the bridge with
- * BA-UPOT. It is disabled by default and must be explicitly enabled for tests or local measurements.</p>
+ * <p>The fixed-layer reference endpoint is disabled by default and must be explicitly enabled for tests or local
+ * measurements. In {@link BaSsuIbltProtocolMode#SECURE_SEMI_HONEST}, this class must pass the production gate and then
+ * enter the queue-peel endpoint; it must not fall back to the fixed-layer reference path.</p>
  *
  * @author donghai hou
  * @date 2026/06/03
@@ -98,9 +98,21 @@ public class BaSsuIbltBiUpsuSender extends AbstractTwoPartyPto implements BiUpsu
     }
 
     private BiUpsuPartyOutput runSecureSemiHonest(Set<ByteBuffer> senderElementSet) throws MpcAbortException {
-        throw new MpcAbortException(
-            "SECURE_SEMI_HONEST endpoint execution requires the completed P36/P37/P38 production path; "
-                + "fixed-layer reference fallback is forbidden"
+        if (senderElementSet == null) {
+            throw new IllegalArgumentException("senderElementSet must be non-null");
+        }
+        MathPreconditions.checkPositiveInRangeClosed(
+            "senderElementSize", senderElementSet.size(), maxSenderElementSize
         );
+        Preconditions.checkArgument(receiverElementSize > 0);
+        extraInfo++;
+        return BaSsuIbltQueuePeelEndpoint.runProductionEndpoint(
+            rpc, otherParty(), true, senderElementSet, maxSenderElementSize, receiverElementSize,
+            elementByteLength, config, secureEndpointTaskId(), parallel
+        );
+    }
+
+    private int secureEndpointTaskId() {
+        return (int) (encodeTaskId & Integer.MAX_VALUE);
     }
 }

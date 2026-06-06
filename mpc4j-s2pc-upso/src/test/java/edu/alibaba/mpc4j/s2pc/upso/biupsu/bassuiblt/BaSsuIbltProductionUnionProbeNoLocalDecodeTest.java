@@ -33,19 +33,18 @@ public class BaSsuIbltProductionUnionProbeNoLocalDecodeTest {
         BaSsuIbltProductionUnionProbeBackendConfig config =
             BaSsuIbltProductionUnionProbeTestUtils.config();
         byte[] seed = BaSsuIbltProductionUnionProbeTestUtils.seed();
-        BaSsuIbltSecureBucketInput input = BaSsuIbltProductionUnionProbeTestUtils.input(
-            0,
-            BaSsuIbltProductionUnionProbeTestUtils.singletonCell(1L),
-            BaSsuIbltProductionUnionProbeTestUtils.emptyCell()
-        );
+        BaSsuIbltUpBaUpotOfflineSchedule schedule = BaSsuIbltProductionUnionProbeTestUtils.schedule(1, 1);
         BaSsuIbltProductionUnionProbeSender sender =
-            new BaSsuIbltProductionUnionProbeSender(config, seed);
+            new BaSsuIbltProductionUnionProbeSender(config, seed, schedule);
         BaSsuIbltProductionUnionProbeReceiver receiver =
-            new BaSsuIbltProductionUnionProbeReceiver(config, seed);
-        sender.init(1, BaSsuIbltProductionUnionProbeTestUtils.ELEMENT_BYTE_LENGTH);
-        receiver.init(1, BaSsuIbltProductionUnionProbeTestUtils.ELEMENT_BYTE_LENGTH);
-        BaSsuIbltProductionUnionProbeCapsule capsule = sender.probeProduction(0, input);
-        Exception abort = Assert.assertThrows(Exception.class, () -> receiver.probeProduction(0, input, capsule));
+            new BaSsuIbltProductionUnionProbeReceiver(config, seed, schedule);
+        BaSsuIbltUpBaUpotPublicInput publicInput = BaSsuIbltUpBaUpotApiTest.publicInput(0);
+        sender.init(1);
+        receiver.init(1);
+        BaSsuIbltProductionUnionProbeCapsule capsule =
+            sender.buildCapsule(publicInput, BaSsuIbltUpBaUpotApiTest.singletonLocalInput(publicInput, 1L));
+        Exception abort = Assert.assertThrows(Exception.class, () ->
+            receiver.validateCapsuleAndFailClosed(publicInput, BaSsuIbltUpBaUpotLocalInput.empty(publicInput), capsule));
         Assert.assertTrue(abort.getMessage().contains("remote-state-hiding UP-BA-UPOT"));
     }
 }

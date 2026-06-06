@@ -36,6 +36,20 @@ class BaSsuIbltProductionUnionProbeTestUtils {
             .build();
     }
 
+    static BaSsuIbltUpBaUpotOfflineSchedule schedule(int maxProbeNum, int tableLength) {
+        return new BaSsuIbltUpBaUpotOfflineSchedule(
+            "M10_N18_D3", 1, maxProbeNum, tableLength, ELEMENT_BYTE_LENGTH, TAG_BYTE_LENGTH, CHECK_BYTE_LENGTH,
+            config().getAuthTagByteLength()
+        );
+    }
+
+    static BaSsuIbltUpBaUpotOfflineSchedule schedule(int retryNum, int maxProbeNum, int tableLength) {
+        return new BaSsuIbltUpBaUpotOfflineSchedule(
+            "M10_N18_D3", retryNum, maxProbeNum, tableLength, ELEMENT_BYTE_LENGTH, TAG_BYTE_LENGTH,
+            CHECK_BYTE_LENGTH, config().getAuthTagByteLength()
+        );
+    }
+
     static byte[] seed() {
         byte[] seed = new byte[32];
         Arrays.fill(seed, (byte) 0x42);
