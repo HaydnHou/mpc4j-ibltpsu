@@ -21,27 +21,32 @@ public class BaSsuIbltFairMeasuredH5BaselineTest {
                     .setReceiverSize(7)
                     .setOverlap(2)
                     .setSeed(20260606L)
+                    .setMetadataOnly(true)
             );
         Assert.assertEquals(BaSsuIbltFairMeasuredH5BaselineBenchmark.BENCHMARK_KIND, result.getBenchmarkKind());
         Assert.assertEquals(BaSsuIbltFairMeasuredH5BaselineBenchmark.BASELINE_NAME, result.getBaselineName());
         Assert.assertEquals(BaSsuIbltFairMeasuredH5BaselineBenchmark.OUTPUT_SEMANTICS, result.getOutputSemantics());
-        Assert.assertTrue(result.isMeasuredBaseline());
+        Assert.assertFalse(result.isMeasuredBaseline());
+        Assert.assertTrue(result.isMetadataOnly());
         Assert.assertTrue(result.isTwoOutputBaseline());
+        Assert.assertFalse(result.isPaperSemantics());
+        Assert.assertFalse(result.isNativePaperOneRunBaseline());
+        Assert.assertEquals(BaSsuIbltFairMeasuredH5BaselineBenchmark.WRAPPER_RUNS, result.getWrapperRuns());
         Assert.assertFalse(result.isMeasuredProduction());
         Assert.assertFalse(result.isProductionReady());
         Assert.assertFalse(result.isSpeedupClaimReady());
         Assert.assertEquals(11, result.getUnionSize());
         Assert.assertEquals(2, result.getPsiCa());
-        Assert.assertTrue(result.getOfflineTimeNanos() > 0);
-        Assert.assertTrue(result.getOnlineTimeNanos() > 0);
-        Assert.assertTrue(result.getTotalTimeNanos() > result.getOfflineTimeNanos());
-        Assert.assertTrue(result.getOfflineTotalBytes() > 0);
-        Assert.assertTrue(result.getOnlineTotalBytes() > 0);
-        Assert.assertTrue(result.getTotalBytes() > result.getOfflineTotalBytes());
-        Assert.assertTrue(result.getOfflinePayloadBytes() > 0);
-        Assert.assertTrue(result.getOnlinePayloadBytes() > 0);
-        Assert.assertTrue(result.getOfflinePacketNum() > 0);
-        Assert.assertTrue(result.getOnlinePacketNum() > 0);
+        Assert.assertEquals(0L, result.getOfflineTimeNanos());
+        Assert.assertEquals(0L, result.getOnlineTimeNanos());
+        Assert.assertEquals(0L, result.getTotalTimeNanos());
+        Assert.assertEquals(0L, result.getOfflineTotalBytes());
+        Assert.assertEquals(0L, result.getOnlineTotalBytes());
+        Assert.assertEquals(0L, result.getTotalBytes());
+        Assert.assertEquals(0L, result.getOfflinePayloadBytes());
+        Assert.assertEquals(0L, result.getOnlinePayloadBytes());
+        Assert.assertEquals(0L, result.getOfflinePacketNum());
+        Assert.assertEquals(0L, result.getOnlinePacketNum());
     }
 
     @Test
@@ -53,15 +58,24 @@ public class BaSsuIbltFairMeasuredH5BaselineTest {
                     .setReceiverSize(5)
                     .setOverlap(5)
                     .setSeed(20260607L)
+                    .setMetadataOnly(true)
             );
         String display = result.toDisplayString();
-        Assert.assertTrue(display.contains("benchmarkKind=MEASURED_H5_IBLT_PSU_BASELINE"));
-        Assert.assertTrue(display.contains("baselineName=H5_IBLT_PSU_TWO_OUTPUT_MEASURED"));
-        Assert.assertTrue(display.contains("measuredBaseline=true"));
+        Assert.assertTrue(display.contains("benchmarkKind="
+            + BaSsuIbltFairMeasuredH5BaselineBenchmark.BENCHMARK_KIND));
+        Assert.assertTrue(display.contains("baselineName="
+            + BaSsuIbltFairMeasuredH5BaselineBenchmark.BASELINE_NAME));
+        Assert.assertTrue(display.contains("measurementMode=METADATA_ONLY"));
+        Assert.assertTrue(display.contains("metadataOnly=true"));
+        Assert.assertTrue(display.contains("measuredBaseline=false"));
         Assert.assertTrue(display.contains("twoOutputBaseline=true"));
+        Assert.assertTrue(display.contains("paperSemantics=false"));
+        Assert.assertTrue(display.contains("nativePaperOneRunBaseline=false"));
+        Assert.assertTrue(display.contains("wrapperRuns=2"));
         Assert.assertTrue(display.contains("measuredProduction=false"));
         Assert.assertTrue(display.contains("productionReady=false"));
-        Assert.assertTrue(display.contains("outputSemantics=TWO_OUTPUT_BY_ROLE_SWAP"));
+        Assert.assertTrue(display.contains("outputSemantics="
+            + BaSsuIbltFairMeasuredH5BaselineBenchmark.OUTPUT_SEMANTICS));
         Assert.assertTrue(display.contains("speedupClaimReady=false"));
         Assert.assertTrue(display.contains("rawCommand=BaSsuIbltFairMeasuredH5BaselineBenchmark"));
         Assert.assertFalse(display.contains("speedup="));

@@ -35,6 +35,10 @@ public class BaSsuIbltQueuePeelLocalSkipPolicyTest {
             BaSsuIbltQueuePeelLocalSkipPolicy.Decision.SKIP_DUPLICATE_PUBLIC,
             BaSsuIbltQueuePeelLocalSkipPolicy.decide(3, 2, 1, scheduled)
         );
+        Assert.assertEquals(
+            BaSsuIbltQueuePeelLocalSkipPolicy.Decision.SKIP_DUPLICATE_PUBLIC,
+            BaSsuIbltQueuePeelLocalSkipPolicy.decide(3, 2, 1, true)
+        );
     }
 
     @Test
@@ -43,6 +47,10 @@ public class BaSsuIbltQueuePeelLocalSkipPolicyTest {
             BaSsuIbltQueuePeelLocalSkipPolicy.Decision.SKIP_UNCHANGED_PUBLIC,
             BaSsuIbltQueuePeelLocalSkipPolicy.decide(5, 4, 4, Set.of())
         );
+        Assert.assertEquals(
+            BaSsuIbltQueuePeelLocalSkipPolicy.Decision.SKIP_UNCHANGED_PUBLIC,
+            BaSsuIbltQueuePeelLocalSkipPolicy.decide(5, 4, 4, false)
+        );
     }
 
     @Test
@@ -50,6 +58,10 @@ public class BaSsuIbltQueuePeelLocalSkipPolicyTest {
         Assert.assertEquals(
             BaSsuIbltQueuePeelLocalSkipPolicy.Decision.PROBE_REMOTE,
             BaSsuIbltQueuePeelLocalSkipPolicy.decide(5, 5, 4, Set.of())
+        );
+        Assert.assertEquals(
+            BaSsuIbltQueuePeelLocalSkipPolicy.Decision.PROBE_REMOTE,
+            BaSsuIbltQueuePeelLocalSkipPolicy.decide(5, 5, 4, false)
         );
     }
 

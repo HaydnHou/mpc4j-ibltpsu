@@ -284,20 +284,25 @@ final class BaSsuIbltQueuePeelEndpoint {
         int[] bucketVersions = new int[params.getTableLength()];
         int[] lastProbedVersions = new int[params.getTableLength()];
         Arrays.fill(lastProbedVersions, BaSsuIbltQueuePeelLocalSkipPolicy.NEVER_PROBED);
+        int[] scheduledBatchMarks = new int[params.getTableLength()];
+        int batchMarker = 1;
         List<BaSsuIbltUpBaUpotPublicInput> publicInputs = new ArrayList<>(probeBatchSize);
         List<BaSsuIbltUpBaUpotLocalInput> localProbeInputs = new ArrayList<>(probeBatchSize);
-        HashSet<Integer> scheduledInCurrentBatch = new HashSet<>(probeBatchSize * 2);
         long probeCount = 0L;
         while (!queue.isEmpty()) {
             publicInputs.clear();
             localProbeInputs.clear();
-            scheduledInCurrentBatch.clear();
+            if (batchMarker == Integer.MAX_VALUE) {
+                Arrays.fill(scheduledBatchMarks, 0);
+                batchMarker = 1;
+            }
+            int currentBatchMarker = batchMarker++;
             while (!queue.isEmpty() && publicInputs.size() < probeBatchSize) {
                 int bucketIndex = queue.removeFirst();
                 BaSsuIbltQueuePeelLocalSkipPolicy.Decision decision =
                     BaSsuIbltQueuePeelLocalSkipPolicy.decide(
                         bucketIndex, bucketVersions[bucketIndex], lastProbedVersions[bucketIndex],
-                        scheduledInCurrentBatch
+                        scheduledBatchMarks[bucketIndex] == currentBatchMarker
                     );
                 if (decision != BaSsuIbltQueuePeelLocalSkipPolicy.Decision.PROBE_REMOTE) {
                     if (phaseRecorder != null) {
@@ -312,19 +317,17 @@ final class BaSsuIbltQueuePeelEndpoint {
                     return new RetryResult(false, peeled, Math.toIntExact(probeCount));
                 }
                 int probeOrdinal = Math.toIntExact(probeCount + publicInputs.size());
-                BaSsuIbltQueuePeelProbeContext context = new BaSsuIbltQueuePeelProbeContext(
-                    retryIndex, bucketIndex, probeOrdinal
-                );
                 BaSsuIbltSecureCellView localCellView = localLayer == BaSsuIbltProductionUnionProbeLocalLayer.ANCHOR
                     ? builder.getAnchorCellView(bucketIndex)
                     : builder.getShadowCellView(bucketIndex);
-                BaSsuIbltProductionQueuePeelPartyLocalProbeInput localProbe =
+                BaSsuIbltUpBaUpotPublicInput publicInput = schedule.publicInput(retryIndex, bucketIndex, probeOrdinal);
+                BaSsuIbltUpBaUpotLocalInput localProbeInput =
                     BaSsuIbltProductionQueuePeelAdapter.partyLocalProbeInput(
-                        schedule, context, localCellView, localLayer, BaSsuIbltQueuePeelEndpoint::authMaterial
+                        publicInput, localCellView, localLayer, BaSsuIbltQueuePeelEndpoint::authMaterial
                     );
-                publicInputs.add(localProbe.getPublicInput());
-                localProbeInputs.add(localProbe.getOwnLocalInput());
-                scheduledInCurrentBatch.add(bucketIndex);
+                publicInputs.add(publicInput);
+                localProbeInputs.add(localProbeInput);
+                scheduledBatchMarks[bucketIndex] = currentBatchMarker;
                 lastProbedVersions[bucketIndex] = bucketVersions[bucketIndex];
             }
             if (publicInputs.isEmpty()) {
@@ -344,14 +347,14 @@ final class BaSsuIbltQueuePeelEndpoint {
                     continue;
                 }
                 ByteKey outputKey = new ByteKey(output.getElement());
-                boolean localDeleted = deleteLocalIfPresent(
+                int[] touchedPositions = deleteLocalIfPresent(
                     outputKey, deleted, localRemaining, tagMap, builder, localLayer
                 );
-                if (localDeleted) {
+                if (touchedPositions != null) {
                     peeled.add(outputKey);
-                    touchAndEnqueuePositions(queue, builder, outputKey, bucketVersions);
-                } else if (!localInput.activeSet.contains(outputKey) && peeled.add(outputKey)) {
-                    touchAndEnqueuePositions(queue, builder, outputKey, bucketVersions);
+                    touchAndEnqueuePositions(queue, touchedPositions, bucketVersions);
+                } else if (!deleted.contains(outputKey) && peeled.add(outputKey)) {
+                    touchAndEnqueuePositions(queue, builder.positions(outputKey.bytes), bucketVersions);
                 }
             }
         }
@@ -402,29 +405,29 @@ final class BaSsuIbltQueuePeelEndpoint {
         return new RetryStatus(payload[0] == 1, probeCount);
     }
 
-    private static boolean deleteLocalIfPresent(
+    private static int[] deleteLocalIfPresent(
         ByteKey element, Set<ByteKey> deleted, Set<ByteKey> localRemaining, Map<ByteKey, TagPair> tagMap,
         BaSsuIbltSecureLayerBuilder builder, BaSsuIbltProductionUnionProbeLocalLayer localLayer) {
         if (deleted.contains(element) || !localRemaining.remove(element)) {
-            return false;
+            return null;
         }
         TagPair tagPair = tagMap.get(element);
         if (tagPair == null) {
             throw new IllegalStateException("missing local tag/check for peeled element");
         }
+        int[] positions = builder.positions(element.bytes);
         if (localLayer == BaSsuIbltProductionUnionProbeLocalLayer.ANCHOR) {
-            builder.deleteAnchor(element.bytes, tagPair.tag, tagPair.check);
+            builder.deleteAnchor(element.bytes, tagPair.tag, tagPair.check, positions);
         } else {
-            builder.deleteShadow(element.bytes, tagPair.tag, tagPair.check);
+            builder.deleteShadow(element.bytes, tagPair.tag, tagPair.check, positions);
         }
         deleted.add(element);
-        return true;
+        return positions;
     }
 
     private static void touchAndEnqueuePositions(
-        ArrayDeque<Integer> queue, BaSsuIbltSecureLayerBuilder builder, ByteKey element, int[] bucketVersions
-    ) {
-        for (int position : builder.positions(element.bytes)) {
+        ArrayDeque<Integer> queue, int[] positions, int[] bucketVersions) {
+        for (int position : positions) {
             bucketVersions[position]++;
             queue.addLast(position);
         }

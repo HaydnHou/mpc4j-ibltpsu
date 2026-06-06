@@ -31,17 +31,26 @@ public class BaSsuIbltFairBaselineClaimGateTest {
                     .setReceiverSize(6)
                     .setOverlap(2)
                     .setSeed(20260610L)
+                    .setMetadataOnly(true)
             );
         String productionDisplay = productionResult.toDisplayString();
         String baselineDisplay = baselineResult.toDisplayString();
         Assert.assertTrue(productionResult.isMeasuredProduction());
         Assert.assertTrue(productionResult.isProductionReady());
-        Assert.assertTrue(baselineResult.isMeasuredBaseline());
+        Assert.assertFalse(baselineResult.isMeasuredBaseline());
+        Assert.assertTrue(baselineResult.isMetadataOnly());
         Assert.assertTrue(baselineResult.isTwoOutputBaseline());
+        Assert.assertFalse(baselineResult.isPaperSemantics());
+        Assert.assertFalse(baselineResult.isNativePaperOneRunBaseline());
+        Assert.assertEquals(2, baselineResult.getWrapperRuns());
         Assert.assertFalse(baselineResult.isSpeedupClaimReady());
         Assert.assertEquals(productionResult.getUnionSize(), baselineResult.getUnionSize());
         Assert.assertFalse(productionDisplay.contains("speedup="));
         Assert.assertFalse(baselineDisplay.contains("speedup="));
+        Assert.assertTrue(baselineDisplay.contains("measurementMode=METADATA_ONLY"));
+        Assert.assertTrue(baselineDisplay.contains("metadataOnly=true"));
         Assert.assertTrue(baselineDisplay.contains("speedupClaimReady=false"));
+        Assert.assertTrue(baselineDisplay.contains("paperSemantics=false"));
+        Assert.assertTrue(baselineDisplay.contains("nativePaperOneRunBaseline=false"));
     }
 }

@@ -3,6 +3,8 @@ package edu.alibaba.mpc4j.s2pc.upso.biupsu.bassuiblt;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.List;
+
 /**
  * P51 fixed-shape RPC payload tests.
  *
@@ -10,6 +12,36 @@ import org.junit.Test;
  * @date 2026/06/05
  */
 public class BaSsuIbltUpBaUpotRpcFixedShapeTest {
+
+    @Test
+    public void testFixedLengthBatchPayloadCodecPacksToSinglePayload() {
+        List<byte[]> chunks = List.of(
+            new byte[]{0x01, 0x02, 0x03},
+            new byte[]{0x04, 0x05, 0x06},
+            new byte[]{0x07, 0x08, 0x09}
+        );
+        List<byte[]> packed = BaSsuIbltFixedLengthBatchPayloadCodec.pack(chunks, 3);
+        Assert.assertEquals(1, packed.size());
+        Assert.assertArrayEquals(new byte[]{
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09
+        }, packed.get(0));
+        List<byte[]> unpacked = BaSsuIbltFixedLengthBatchPayloadCodec.unpack(packed, chunks.size(), 3);
+        Assert.assertEquals(chunks.size(), unpacked.size());
+        for (int i = 0; i < chunks.size(); i++) {
+            Assert.assertArrayEquals(chunks.get(i), unpacked.get(i));
+        }
+    }
+
+    @Test
+    public void testFixedLengthBatchPayloadCodecRejectsMalformedShape() {
+        Assert.assertThrows(IllegalArgumentException.class,
+            () -> BaSsuIbltFixedLengthBatchPayloadCodec.pack(List.of(new byte[]{0x01, 0x02}), 3));
+        List<byte[]> packed = BaSsuIbltFixedLengthBatchPayloadCodec.pack(List.of(new byte[]{0x01, 0x02}), 2);
+        Assert.assertThrows(IllegalArgumentException.class,
+            () -> BaSsuIbltFixedLengthBatchPayloadCodec.unpack(packed, 2, 2));
+        Assert.assertThrows(IllegalArgumentException.class,
+            () -> BaSsuIbltFixedLengthBatchPayloadCodec.unpack(List.of(packed.get(0), packed.get(0)), 1, 2));
+    }
 
     @Test
     public void testFixedResultShapeForPublicStates() {

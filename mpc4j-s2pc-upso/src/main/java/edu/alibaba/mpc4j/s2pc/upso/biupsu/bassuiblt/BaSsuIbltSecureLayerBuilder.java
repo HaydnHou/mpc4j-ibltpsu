@@ -99,8 +99,16 @@ class BaSsuIbltSecureLayerBuilder {
         update(element, tag, check, true, false);
     }
 
+    void deleteAnchor(byte[] element, byte[] tag, byte[] check, int[] positions) {
+        update(element, tag, check, true, false, positions);
+    }
+
     public void deleteShadow(byte[] element, byte[] tag, byte[] check) {
         update(element, tag, check, false, false);
+    }
+
+    void deleteShadow(byte[] element, byte[] tag, byte[] check, int[] positions) {
+        update(element, tag, check, false, false, positions);
     }
 
     public BaSsuIbltSecureCellView getAnchorCellView(int bucketIndex) {
@@ -152,10 +160,17 @@ class BaSsuIbltSecureLayerBuilder {
     }
 
     private void update(byte[] element, byte[] tag, byte[] check, boolean anchor, boolean insert) {
+        update(element, tag, check, anchor, insert, null);
+    }
+
+    private void update(byte[] element, byte[] tag, byte[] check, boolean anchor, boolean insert,
+                        int[] knownPositions) {
         byte[] elementBytes = normalizeElement(element);
         byte[] tagBytes = normalizeTag(tag);
         byte[] checkBytes = normalizeCheck(check);
-        int[] positions = BaSsuIbltPlacement.positions(params, retryIndex, elementBytes);
+        int[] positions = knownPositions == null
+            ? BaSsuIbltPlacement.positions(params, retryIndex, elementBytes)
+            : normalizePositions(knownPositions);
         if (!insert) {
             checkDeletePossible(positions, anchor);
         }
@@ -168,6 +183,19 @@ class BaSsuIbltSecureLayerBuilder {
             }
             cells[position].update(elementBytes, tagBytes, checkBytes, anchor, insert);
         }
+    }
+
+    private int[] normalizePositions(int[] positions) {
+        if (positions == null || positions.length != params.getDegree()) {
+            throw new IllegalArgumentException("known positions must match the public degree");
+        }
+        int[] copy = Arrays.copyOf(positions, positions.length);
+        for (int position : copy) {
+            if (position < 0 || position >= cells.length) {
+                throw new IllegalArgumentException("known position out of range");
+            }
+        }
+        return copy;
     }
 
     private void checkDeletePossible(int[] positions, boolean anchor) {

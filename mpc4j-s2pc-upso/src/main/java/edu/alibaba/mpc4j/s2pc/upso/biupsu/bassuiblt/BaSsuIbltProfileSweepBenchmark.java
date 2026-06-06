@@ -51,20 +51,30 @@ public final class BaSsuIbltProfileSweepBenchmark {
         }
         config.validate();
         List<Row> rows = new ArrayList<>();
-        Row bestRow = null;
+        Row bestObjectiveRow = null;
+        Row bestOnlineRow = null;
+        Row bestTotalRow = null;
         int rowIndex = 0;
         for (double alpha : config.alphas) {
             for (int degree : config.degrees) {
                 for (int onlineBatchSize : config.onlineBatchSizes) {
                     Row row = runRow(config, rowIndex++, alpha, degree, onlineBatchSize);
                     rows.add(row);
-                    if (row.success && (bestRow == null || row.totalTimeMs() < bestRow.totalTimeMs())) {
-                        bestRow = row;
+                    if (row.success
+                        && (bestObjectiveRow == null
+                        || config.objective.value(row) < config.objective.value(bestObjectiveRow))) {
+                        bestObjectiveRow = row;
+                    }
+                    if (row.success && (bestOnlineRow == null || row.onlineTimeMs() < bestOnlineRow.onlineTimeMs())) {
+                        bestOnlineRow = row;
+                    }
+                    if (row.success && (bestTotalRow == null || row.totalTimeMs() < bestTotalRow.totalTimeMs())) {
+                        bestTotalRow = row;
                     }
                 }
             }
         }
-        return new Result(config, rows, bestRow);
+        return new Result(config, rows, bestObjectiveRow, bestOnlineRow, bestTotalRow);
     }
 
     private static Row runRow(Config config, int rowIndex, double alpha, int degree, int onlineBatchSize) {
@@ -146,6 +156,67 @@ public final class BaSsuIbltProfileSweepBenchmark {
     }
 
     /**
+     * Sweep objective.
+     */
+    public enum Objective {
+        /**
+         * minimize online time.
+         */
+        ONLINE_TIME,
+        /**
+         * minimize total time.
+         */
+        TOTAL_TIME,
+        /**
+         * minimize online communication.
+         */
+        ONLINE_BYTES,
+        /**
+         * minimize total communication.
+         */
+        TOTAL_BYTES;
+
+        private double value(Row row) {
+            switch (this) {
+                case ONLINE_TIME:
+                    return row.onlineTimeMs();
+                case TOTAL_TIME:
+                    return row.totalTimeMs();
+                case ONLINE_BYTES:
+                    return row.result.getOnlineTotalBytes();
+                case TOTAL_BYTES:
+                    return row.result.getTotalBytes();
+                default:
+                    throw new IllegalStateException("unknown objective: " + this);
+            }
+        }
+
+        private static Objective parse(String value) {
+            String normalized = value.trim().replace("-", "").replace("_", "").toLowerCase(Locale.ROOT);
+            switch (normalized) {
+                case "online":
+                case "onlinetime":
+                case "onlinems":
+                    return ONLINE_TIME;
+                case "total":
+                case "totaltime":
+                case "totalms":
+                    return TOTAL_TIME;
+                case "onlinebytes":
+                case "onlinecommunication":
+                case "onlinecomm":
+                    return ONLINE_BYTES;
+                case "totalbytes":
+                case "totalcommunication":
+                case "totalcomm":
+                    return TOTAL_BYTES;
+                default:
+                    throw new IllegalArgumentException("unknown sweep objective: " + value);
+            }
+        }
+    }
+
+    /**
      * Sweep config.
      */
     public static final class Config {
@@ -177,6 +248,10 @@ public final class BaSsuIbltProfileSweepBenchmark {
          * online probe batch sizes.
          */
         private int[] onlineBatchSizes;
+        /**
+         * optimization objective.
+         */
+        private Objective objective;
         /**
          * retry count.
          */
@@ -210,6 +285,7 @@ public final class BaSsuIbltProfileSweepBenchmark {
             alphas = new double[]{1.45, 1.55, 1.65};
             degrees = new int[]{3};
             onlineBatchSizes = new int[]{1 << 13, 1 << 14, 1 << 15};
+            objective = Objective.ONLINE_TIME;
             retryCount = 1;
             lambda = BaSsuIbltBiUpsuParams.DEFAULT_LAMBDA;
             marginBits = BaSsuIbltBiUpsuParams.DEFAULT_MARGIN_BITS;
@@ -271,6 +347,9 @@ public final class BaSsuIbltProfileSweepBenchmark {
                 case "onlinebatchsizes":
                     onlineBatchSizes = parseIntList(value);
                     break;
+                case "objective":
+                    objective = Objective.parse(value);
+                    break;
                 case "retry":
                 case "retrycount":
                     retryCount = parseInt(value);
@@ -309,6 +388,9 @@ public final class BaSsuIbltProfileSweepBenchmark {
             if (alphas.length == 0 || degrees.length == 0 || onlineBatchSizes.length == 0) {
                 throw new IllegalArgumentException("sweep lists must be non-empty");
             }
+            if (objective == null) {
+                throw new IllegalArgumentException("objective must be non-null");
+            }
             for (double alpha : alphas) {
                 if (!Double.isFinite(alpha) || alpha <= 1.0) {
                     throw new IllegalArgumentException("all alpha values must be finite and greater than 1");
@@ -345,9 +427,10 @@ public final class BaSsuIbltProfileSweepBenchmark {
             return String.format(
                 Locale.ROOT,
                 "m=%d n=%d overlap=%d elementBytes=%d alphas=%s degrees=%s onlineBatchSizes=%s retry=%d "
-                    + "lambda=%d marginBits=%d checksPerBucket=%d seed=%d timeoutMillis=%d",
+                    + "objective=%s lambda=%d marginBits=%d checksPerBucket=%d seed=%d timeoutMillis=%d",
                 senderSize, receiverSize, overlap, elementByteLength, formatList(alphas), formatList(degrees),
-                formatList(onlineBatchSizes), retryCount, lambda, marginBits, checksPerBucket, seed, timeoutMillis
+                formatList(onlineBatchSizes), retryCount, objective.name().toLowerCase(Locale.ROOT), lambda,
+                marginBits, checksPerBucket, seed, timeoutMillis
             );
         }
     }
@@ -452,14 +535,24 @@ public final class BaSsuIbltProfileSweepBenchmark {
          */
         private final List<Row> rows;
         /**
-         * best successful row.
+         * objective-best successful row.
          */
-        private final Row bestRow;
+        private final Row bestObjectiveRow;
+        /**
+         * online-time-best successful row.
+         */
+        private final Row bestOnlineRow;
+        /**
+         * total-time-best successful row.
+         */
+        private final Row bestTotalRow;
 
-        private Result(Config config, List<Row> rows, Row bestRow) {
+        private Result(Config config, List<Row> rows, Row bestObjectiveRow, Row bestOnlineRow, Row bestTotalRow) {
             this.config = config;
             this.rows = List.copyOf(rows);
-            this.bestRow = bestRow;
+            this.bestObjectiveRow = bestObjectiveRow;
+            this.bestOnlineRow = bestOnlineRow;
+            this.bestTotalRow = bestTotalRow;
         }
 
         public String toDisplayString() {
@@ -470,21 +563,42 @@ public final class BaSsuIbltProfileSweepBenchmark {
             builder.append("rowCount=").append(rows.size()).append(System.lineSeparator());
             builder.append("successCount=").append(rows.stream().filter(row -> row.success).count())
                 .append(System.lineSeparator());
-            if (bestRow == null) {
-                builder.append("bestRow=N/A").append(System.lineSeparator());
+            builder.append("objective=").append(config.objective.name().toLowerCase(Locale.ROOT))
+                .append(System.lineSeparator());
+            if (bestObjectiveRow == null) {
+                builder.append("bestObjectiveRow=N/A").append(System.lineSeparator());
             } else {
                 builder.append(String.format(
                     Locale.ROOT,
-                    "bestRow=%d alpha=%.3f degree=%d onlineBatchSize=%d totalMs=%.3f onlineMs=%.3f totalBytes=%d%n",
-                    bestRow.rowIndex, bestRow.alpha, bestRow.degree, bestRow.onlineBatchSize, bestRow.totalTimeMs(),
-                    bestRow.onlineTimeMs(), bestRow.result.getTotalBytes()
+                    "bestObjectiveRow=%d alpha=%.3f degree=%d onlineBatchSize=%d objectiveValue=%.3f "
+                        + "totalMs=%.3f onlineMs=%.3f onlineBytes=%d totalBytes=%d%n",
+                    bestObjectiveRow.rowIndex, bestObjectiveRow.alpha, bestObjectiveRow.degree,
+                    bestObjectiveRow.onlineBatchSize, config.objective.value(bestObjectiveRow),
+                    bestObjectiveRow.totalTimeMs(), bestObjectiveRow.onlineTimeMs(),
+                    bestObjectiveRow.result.getOnlineTotalBytes(), bestObjectiveRow.result.getTotalBytes()
                 ));
             }
+            appendBestRow(builder, "bestOnlineRow", bestOnlineRow);
+            appendBestRow(builder, "bestTotalRow", bestTotalRow);
             for (Row row : rows) {
-                builder.append(row.toDisplayLine(row == bestRow)).append(System.lineSeparator());
+                builder.append(row.toDisplayLine(row == bestObjectiveRow)).append(System.lineSeparator());
             }
             builder.append("rawCommand=BaSsuIbltProfileSweepBenchmark ").append(config.toArgString());
             return builder.toString();
+        }
+
+        private static void appendBestRow(StringBuilder builder, String label, Row row) {
+            if (row == null) {
+                builder.append(label).append("=N/A").append(System.lineSeparator());
+                return;
+            }
+            builder.append(String.format(
+                Locale.ROOT,
+                "%s=%d alpha=%.3f degree=%d onlineBatchSize=%d totalMs=%.3f onlineMs=%.3f onlineBytes=%d "
+                    + "totalBytes=%d%n",
+                label, row.rowIndex, row.alpha, row.degree, row.onlineBatchSize, row.totalTimeMs(),
+                row.onlineTimeMs(), row.result.getOnlineTotalBytes(), row.result.getTotalBytes()
+            ));
         }
     }
 }

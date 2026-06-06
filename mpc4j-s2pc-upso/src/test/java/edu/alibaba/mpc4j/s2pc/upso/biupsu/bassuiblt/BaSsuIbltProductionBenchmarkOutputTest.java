@@ -74,16 +74,48 @@ public class BaSsuIbltProductionBenchmarkOutputTest {
         BaSsuIbltProfileSweepBenchmark.Result result = BaSsuIbltProfileSweepBenchmark.run(
             BaSsuIbltProfileSweepBenchmark.Config.fromArgs(new String[]{
                 "m=8", "n=16", "overlap=4", "alphas=3.5,4.0", "degrees=3", "onlineBatchSizes=4",
-                "seed=20260606", "timeoutMillis=120000"
+                "objective=onlineTime", "seed=20260606", "timeoutMillis=120000"
             })
         );
         String display = result.toDisplayString();
         Assert.assertTrue(display.contains("benchmarkKind=" + BaSsuIbltProfileSweepBenchmark.BENCHMARK_KIND));
         Assert.assertTrue(display.contains("securityNotice=" + BaSsuIbltProfileSweepBenchmark.SECURITY_NOTICE));
         Assert.assertTrue(display.contains("rowCount=2"));
-        Assert.assertTrue(display.contains("bestRow="));
+        Assert.assertTrue(display.contains("objective=online_time") || display.contains("objective=online"));
+        Assert.assertTrue(display.contains("bestObjectiveRow="));
+        Assert.assertTrue(display.contains("bestOnlineRow="));
+        Assert.assertTrue(display.contains("bestTotalRow="));
         Assert.assertTrue(display.contains("onlineBatchSize=4"));
         Assert.assertTrue(display.contains("rawCommand=BaSsuIbltProfileSweepBenchmark"));
+    }
+
+    @Test
+    public void testMeasuredComparisonPrintsWrapperAndPaperEstimateFields() throws Exception {
+        BaSsuIbltMeasuredComparisonBenchmark.Result result = BaSsuIbltMeasuredComparisonBenchmark.run(
+            BaSsuIbltMeasuredComparisonBenchmark.Config.fromArgs(new String[]{
+                "m=5", "n=6", "overlap=2", "alpha=5.0", "onlineBatchSize=4", "seed=20260606",
+                "timeoutMillis=120000", "baselineMetadataOnly=true"
+            })
+        );
+        String display = result.toDisplayString();
+        Assert.assertFalse(result.isSpeedupClaimReady());
+        Assert.assertTrue(Double.isNaN(result.getTotalTimeRatio()));
+        Assert.assertTrue(Double.isNaN(result.getOnlineTimeRatio()));
+        Assert.assertTrue(Double.isNaN(result.getTotalByteRatio()));
+        Assert.assertTrue(Double.isNaN(result.getOnlineByteRatio()));
+        Assert.assertTrue(Double.isNaN(result.getOnlineTimeRatioVsPaperSingleRunEstimate()));
+        Assert.assertTrue(Double.isNaN(result.getOnlineByteRatioVsPaperSingleRunEstimate()));
+        Assert.assertTrue(display.contains("baselinePaperSemantics=false"));
+        Assert.assertTrue(display.contains("baselineNativePaperOneRun=false"));
+        Assert.assertTrue(display.contains("baselineWrapperRuns=2"));
+        Assert.assertTrue(display.contains("baselineMeasuredBaseline=false"));
+        Assert.assertTrue(display.contains("baselineMetadataOnly=true"));
+        Assert.assertTrue(display.contains("paperSingleRunEstimate=false"));
+        Assert.assertTrue(display.contains("wrapperTotalTimeRatio=N/A"));
+        Assert.assertTrue(display.contains("onlineTimeRatioVsPaperSingleRunEstimate=N/A"));
+        Assert.assertTrue(display.contains("onlineByteRatioVsPaperSingleRunEstimate=N/A"));
+        Assert.assertTrue(display.contains("estimatedPaperSingleRunOnlineTimeMs=N/A"));
+        Assert.assertTrue(display.contains("onlineTimeTargetMs=5500.000"));
     }
 
     static BaSsuIbltQueuePeelBenchmark.Result sampleQueuePeelResult() throws InterruptedException {

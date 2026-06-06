@@ -1,7 +1,6 @@
 package edu.alibaba.mpc4j.s2pc.upso.biupsu.bassuiblt;
 
 import edu.alibaba.mpc4j.common.rpc.MpcAbortException;
-import edu.alibaba.mpc4j.common.rpc.MpcAbortPreconditions;
 import edu.alibaba.mpc4j.common.rpc.Party;
 import edu.alibaba.mpc4j.common.rpc.PtoState;
 import edu.alibaba.mpc4j.common.rpc.Rpc;
@@ -98,13 +97,25 @@ final class BaSsuIbltRpcUpBaUpotReceiver extends AbstractTwoPartyPto implements 
         List<byte[]> choiceCorrectionPayload = correctBatch(publicInputs, localInputs);
         sendOtherPartyPayload(
             BaSsuIbltProductionUnionProbePtoDesc.PtoStep.ONLINE_CHOICE_CORRECTION_BATCH.ordinal(),
-            choiceCorrectionPayload
+            BaSsuIbltFixedLengthBatchPayloadCodec.pack(
+                choiceCorrectionPayload, getFixedChoiceCorrectionByteLength()
+            )
         );
         List<byte[]> rowPayload = receiveOtherPartyPayload(
             BaSsuIbltProductionUnionProbePtoDesc.PtoStep.ONLINE_PROBE_CAPSULE_BATCH.ordinal()
         );
-        List<BaSsuIbltUpBaUpotMaskedProbeRows> maskedRowsBatch =
-            BaSsuIbltUpBaUpotMaskedProbeRows.fromBatchPayload(rowPayload, batchSize, rowPayloadByteLength());
+        rowPayload = unpackPeerPayload(
+            rowPayload, Math.multiplyExact(batchSize, BaSsuIbltUpBaUpotMaskedProbeRows.ROW_NUM),
+            rowPayloadByteLength()
+        );
+        List<BaSsuIbltUpBaUpotMaskedProbeRows> maskedRowsBatch;
+        try {
+            maskedRowsBatch = BaSsuIbltUpBaUpotMaskedProbeRows.fromBatchPayload(
+                rowPayload, batchSize, rowPayloadByteLength()
+            );
+        } catch (IllegalArgumentException e) {
+            throw new MpcAbortException("malformed UP-BA-UPOT masked row payload", e);
+        }
         List<BaSsuIbltProductionUnionProbeOutput> outputs = new ArrayList<>(batchSize);
         List<byte[]> fixedResultPayload = new ArrayList<>(batchSize);
         for (int batchIndex = 0; batchIndex < batchSize; batchIndex++) {
@@ -115,16 +126,22 @@ final class BaSsuIbltRpcUpBaUpotReceiver extends AbstractTwoPartyPto implements 
             boolean[] choiceCorrectionBits = BaSsuIbltUpBaUpotBucketProbeGadget.decodeChoiceCorrectionPayload(
                 choiceCorrection, config.getCotNumPerProbe()
             );
-            BaSsuIbltProductionUnionProbeOutput output = BaSsuIbltUpBaUpotBucketProbeGadget.decodeSelectedRow(
-                schedule, publicInputs.get(batchIndex), localInputs.get(batchIndex), maskedRowsBatch.get(batchIndex),
-                batchedCotReceiverOutput, cotOffset, config.getCotNumPerProbe(), choiceCorrectionBits
-            );
+            BaSsuIbltProductionUnionProbeOutput output;
+            try {
+                output = BaSsuIbltUpBaUpotBucketProbeGadget.decodeSelectedRow(
+                    schedule, publicInputs.get(batchIndex), localInputs.get(batchIndex),
+                    maskedRowsBatch.get(batchIndex), batchedCotReceiverOutput, cotOffset,
+                    config.getCotNumPerProbe(), choiceCorrectionBits
+                );
+            } catch (IllegalArgumentException e) {
+                throw new MpcAbortException("malformed UP-BA-UPOT masked row content", e);
+            }
             outputs.add(output);
             fixedResultPayload.add(resultCodec.encode(output));
         }
         sendOtherPartyPayload(
             BaSsuIbltProductionUnionProbePtoDesc.PtoStep.ONLINE_FIXED_RESULT_BATCH.ordinal(),
-            fixedResultPayload
+            BaSsuIbltFixedLengthBatchPayloadCodec.pack(fixedResultPayload, resultCodec.byteLength())
         );
         nextMaterialOrdinal = Math.addExact(materialOrdinal(publicInputs.get(batchSize - 1)), 1);
         stopWatch.stop();
@@ -278,6 +295,15 @@ final class BaSsuIbltRpcUpBaUpotReceiver extends AbstractTwoPartyPto implements 
     private void ensureOfflineMaterialPrepared() {
         if (!offlineMaterialPrepared) {
             throw new IllegalStateException("receiver offline COT material must be prepared before probing");
+        }
+    }
+
+    private static List<byte[]> unpackPeerPayload(List<byte[]> payload, int chunkNum, int chunkByteLength)
+        throws MpcAbortException {
+        try {
+            return BaSsuIbltFixedLengthBatchPayloadCodec.unpack(payload, chunkNum, chunkByteLength);
+        } catch (IllegalArgumentException e) {
+            throw new MpcAbortException("malformed packed UP-BA-UPOT peer payload", e);
         }
     }
 

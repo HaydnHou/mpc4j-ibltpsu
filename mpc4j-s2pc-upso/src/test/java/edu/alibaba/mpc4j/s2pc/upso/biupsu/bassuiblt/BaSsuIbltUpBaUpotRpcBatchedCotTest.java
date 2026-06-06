@@ -115,8 +115,7 @@ public class BaSsuIbltUpBaUpotRpcBatchedCotTest {
                 BaSsuIbltUpBaUpotLocalInput.empty(publicInput)
             );
 
-            Assert.assertEquals(sender.getFixedProbeCapsuleByteLength() + Integer.BYTES,
-                senderRpc.getPayloadByteLength());
+            Assert.assertEquals(sender.getFixedProbeCapsuleByteLength(), senderRpc.getPayloadByteLength());
             Assert.assertEquals(
                 receiver.getFixedChoiceCorrectionByteLength() + receiver.getFixedResultByteLength(),
                 receiverRpc.getPayloadByteLength()

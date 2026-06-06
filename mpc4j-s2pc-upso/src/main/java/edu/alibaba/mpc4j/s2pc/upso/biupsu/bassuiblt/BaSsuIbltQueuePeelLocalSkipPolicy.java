@@ -48,7 +48,31 @@ final class BaSsuIbltQueuePeelLocalSkipPolicy {
         if (scheduledInCurrentBatch == null) {
             throw new IllegalArgumentException("scheduledInCurrentBatch must be non-null");
         }
-        if (scheduledInCurrentBatch.contains(bucketIndex)) {
+        return decide(bucketIndex, currentVersion, lastProbedVersion, scheduledInCurrentBatch.contains(bucketIndex));
+    }
+
+    /**
+     * Decides whether a queued public bucket needs a remote UP-BA-UPOT probe without boxed set lookups.
+     *
+     * @param bucketIndex public bucket index.
+     * @param currentVersion public deletion version for the bucket.
+     * @param lastProbedVersion public version observed by the last probe of the bucket.
+     * @param scheduledInCurrentBatch true if the bucket already appears in the current public batch.
+     * @return skip decision.
+     */
+    static Decision decide(
+        int bucketIndex, int currentVersion, int lastProbedVersion, boolean scheduledInCurrentBatch
+    ) {
+        if (bucketIndex < 0) {
+            throw new IllegalArgumentException("bucketIndex must be non-negative");
+        }
+        if (currentVersion < 0) {
+            throw new IllegalArgumentException("currentVersion must be non-negative");
+        }
+        if (lastProbedVersion < NEVER_PROBED) {
+            throw new IllegalArgumentException("lastProbedVersion is invalid");
+        }
+        if (scheduledInCurrentBatch) {
             return Decision.SKIP_DUPLICATE_PUBLIC;
         }
         if (lastProbedVersion == currentVersion) {

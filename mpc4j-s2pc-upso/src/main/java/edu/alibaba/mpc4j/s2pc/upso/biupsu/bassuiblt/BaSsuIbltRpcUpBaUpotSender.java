@@ -1,7 +1,6 @@
 package edu.alibaba.mpc4j.s2pc.upso.biupsu.bassuiblt;
 
 import edu.alibaba.mpc4j.common.rpc.MpcAbortException;
-import edu.alibaba.mpc4j.common.rpc.MpcAbortPreconditions;
 import edu.alibaba.mpc4j.common.rpc.Party;
 import edu.alibaba.mpc4j.common.rpc.PtoState;
 import edu.alibaba.mpc4j.common.rpc.Rpc;
@@ -99,10 +98,12 @@ final class BaSsuIbltRpcUpBaUpotSender extends AbstractTwoPartyPto implements Ba
         List<byte[]> choiceCorrectionPayload = receiveOtherPartyPayload(
             BaSsuIbltProductionUnionProbePtoDesc.PtoStep.ONLINE_CHOICE_CORRECTION_BATCH.ordinal()
         );
-        MpcAbortPreconditions.checkArgument(choiceCorrectionPayload.size() == batchSize);
+        choiceCorrectionPayload = unpackPeerPayload(
+            choiceCorrectionPayload, batchSize, getFixedChoiceCorrectionByteLength()
+        );
         List<BaSsuIbltUpBaUpotMaskedProbeRows> maskedRowsBatch = new ArrayList<>(batchSize);
         for (int batchIndex = 0; batchIndex < batchSize; batchIndex++) {
-            boolean[] choiceCorrectionBits = BaSsuIbltUpBaUpotBucketProbeGadget.decodeChoiceCorrectionPayload(
+            boolean[] choiceCorrectionBits = decodePeerChoiceCorrectionPayload(
                 choiceCorrectionPayload.get(batchIndex), config.getCotNumPerProbe()
             );
             int cotOffset = Math.multiplyExact(
@@ -115,17 +116,25 @@ final class BaSsuIbltRpcUpBaUpotSender extends AbstractTwoPartyPto implements Ba
         }
         sendOtherPartyPayload(
             BaSsuIbltProductionUnionProbePtoDesc.PtoStep.ONLINE_PROBE_CAPSULE_BATCH.ordinal(),
-            BaSsuIbltUpBaUpotMaskedProbeRows.toBatchPayload(maskedRowsBatch)
+            BaSsuIbltFixedLengthBatchPayloadCodec.pack(
+                BaSsuIbltUpBaUpotMaskedProbeRows.toBatchPayload(maskedRowsBatch), rowPayloadByteLength()
+            )
         );
         List<byte[]> fixedResultPayload = receiveOtherPartyPayload(
             BaSsuIbltProductionUnionProbePtoDesc.PtoStep.ONLINE_FIXED_RESULT_BATCH.ordinal()
         );
-        MpcAbortPreconditions.checkArgument(fixedResultPayload.size() == batchSize);
+        fixedResultPayload = unpackPeerPayload(
+            fixedResultPayload, batchSize, resultCodec.byteLength()
+        );
         List<BaSsuIbltProductionUnionProbeOutput> outputs = new ArrayList<>(batchSize);
         for (int batchIndex = 0; batchIndex < batchSize; batchIndex++) {
-            outputs.add(resultCodec.decode(
-                publicInputs.get(batchIndex).getBucketIndex(), fixedResultPayload.get(batchIndex)
-            ));
+            try {
+                outputs.add(resultCodec.decode(
+                    publicInputs.get(batchIndex).getBucketIndex(), fixedResultPayload.get(batchIndex)
+                ));
+            } catch (IllegalArgumentException e) {
+                throw new MpcAbortException("malformed UP-BA-UPOT fixed result payload", e);
+            }
         }
         nextMaterialOrdinal = Math.addExact(materialOrdinal(publicInputs.get(batchSize - 1)), 1);
         stopWatch.stop();
@@ -254,10 +263,32 @@ final class BaSsuIbltRpcUpBaUpotSender extends AbstractTwoPartyPto implements Ba
         }
     }
 
+    private static List<byte[]> unpackPeerPayload(List<byte[]> payload, int chunkNum, int chunkByteLength)
+        throws MpcAbortException {
+        try {
+            return BaSsuIbltFixedLengthBatchPayloadCodec.unpack(payload, chunkNum, chunkByteLength);
+        } catch (IllegalArgumentException e) {
+            throw new MpcAbortException("malformed packed UP-BA-UPOT peer payload", e);
+        }
+    }
+
+    private static boolean[] decodePeerChoiceCorrectionPayload(byte[] payload, int cotNumPerProbe)
+        throws MpcAbortException {
+        try {
+            return BaSsuIbltUpBaUpotBucketProbeGadget.decodeChoiceCorrectionPayload(payload, cotNumPerProbe);
+        } catch (IllegalArgumentException e) {
+            throw new MpcAbortException("malformed UP-BA-UPOT choice correction payload", e);
+        }
+    }
+
     private int fixedProbePayloadByteLength() {
         return Math.multiplyExact(
             BaSsuIbltUpBaUpotMaskedProbeRows.ROW_NUM,
-            Math.addExact(1, Math.addExact(config.getElementByteLength(), config.getAuthTagByteLength()))
+            rowPayloadByteLength()
         );
+    }
+
+    private int rowPayloadByteLength() {
+        return Math.addExact(1, Math.addExact(config.getElementByteLength(), config.getAuthTagByteLength()));
     }
 }

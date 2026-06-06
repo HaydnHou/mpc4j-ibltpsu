@@ -5,10 +5,11 @@ import edu.alibaba.mpc4j.common.rpc.MpcAbortException;
 import java.util.Locale;
 
 /**
- * Same-profile measured BA-SSU-IBLT versus fair H5 / IBLT-PSU comparison runner.
+ * Same-profile measured BA-SSU-IBLT versus H5 / IBLT-PSU comparison runner.
  *
- * <p>This runner only aggregates two measured rows. It does not emit a positive speedup claim; final speedup wording
- * remains gated by a separate audit of the recorded large-profile rows.</p>
+ * <p>This runner aggregates a BA-SSU measured row and the MPC4J API two-direction H5 / IBLT-PSU wrapper row. It also
+ * prints a derived single-run estimate for paper-semantics IBLT-PSU comparisons, because the IBLT-PSU paper itself is
+ * bi-output in one run. It does not emit a positive speedup claim.</p>
  *
  * @author donghai hou
  * @date 2026/06/06
@@ -22,6 +23,10 @@ public final class BaSsuIbltMeasuredComparisonBenchmark {
      * comparison-only security notice.
      */
     public static final String SECURITY_NOTICE = "COMPARISON_ONLY_NO_SPEEDUP_CLAIM";
+    /**
+     * online-time-first target for the large profile.
+     */
+    public static final double ONLINE_TIME_TARGET_MILLIS = 5_500.0;
 
     private BaSsuIbltMeasuredComparisonBenchmark() {
         // empty
@@ -67,9 +72,28 @@ public final class BaSsuIbltMeasuredComparisonBenchmark {
 
     private static double ratio(long numerator, long denominator) {
         if (denominator <= 0L) {
-            return Double.POSITIVE_INFINITY;
+            return Double.NaN;
         }
         return (double) numerator / (double) denominator;
+    }
+
+    private static double ratio(long numerator, double denominator) {
+        if (!(denominator > 0.0)) {
+            return Double.NaN;
+        }
+        return (double) numerator / denominator;
+    }
+
+    private static String displayRatio(double ratio) {
+        return Double.isFinite(ratio) ? String.format(Locale.ROOT, "%.6f", ratio) : "N/A";
+    }
+
+    private static String displayMillis(double nanos) {
+        return Double.isFinite(nanos) ? String.format(Locale.ROOT, "%.3f", nanos / 1_000_000.0) : "N/A";
+    }
+
+    private static String displayBytes(double bytes) {
+        return Double.isFinite(bytes) ? String.format(Locale.ROOT, "%.0f", bytes) : "N/A";
     }
 
     /**
@@ -101,6 +125,10 @@ public final class BaSsuIbltMeasuredComparisonBenchmark {
          */
         private boolean baselineParallel;
         /**
+         * use a metadata-only H5 wrapper row.
+         */
+        private boolean baselineMetadataOnly;
+        /**
          * BA-SSU online probe batch size.
          */
         private int onlineBatchSize;
@@ -120,6 +148,7 @@ public final class BaSsuIbltMeasuredComparisonBenchmark {
             elementByteLength = Long.BYTES;
             alpha = 1.55;
             baselineParallel = false;
+            baselineMetadataOnly = false;
             onlineBatchSize = 1 << 14;
             seed = 20260606L;
             timeoutMillis = 30L * 60L * 1000L;
@@ -169,6 +198,11 @@ public final class BaSsuIbltMeasuredComparisonBenchmark {
                 case "baselineparallel":
                 case "parallel":
                     baselineParallel = Boolean.parseBoolean(value);
+                    break;
+                case "baselinemetadataonly":
+                case "metadataonly":
+                case "baselineclaimgateonly":
+                    baselineMetadataOnly = Boolean.parseBoolean(value);
                     break;
                 case "batch":
                 case "batchsize":
@@ -241,16 +275,17 @@ public final class BaSsuIbltMeasuredComparisonBenchmark {
                 .setElementByteLength(elementByteLength)
                 .setParallel(baselineParallel)
                 .setSeed(seed)
-                .setTimeoutMillis(timeoutMillis);
+                .setTimeoutMillis(timeoutMillis)
+                .setMetadataOnly(baselineMetadataOnly);
         }
 
         private String toArgString() {
             return String.format(
                 Locale.ROOT,
                 "m=%d n=%d overlap=%d elementBytes=%d alpha=%.3f onlineBatchSize=%d baselineParallel=%s "
-                    + "seed=%d timeoutMillis=%d",
-                senderSize, receiverSize, overlap, elementByteLength, alpha, onlineBatchSize, baselineParallel, seed,
-                timeoutMillis
+                    + "baselineMetadataOnly=%s seed=%d timeoutMillis=%d",
+                senderSize, receiverSize, overlap, elementByteLength, alpha, onlineBatchSize, baselineParallel,
+                baselineMetadataOnly, seed, timeoutMillis
             );
         }
 
@@ -283,6 +318,11 @@ public final class BaSsuIbltMeasuredComparisonBenchmark {
             this.onlineBatchSize = onlineBatchSize;
             return this;
         }
+
+        public Config setBaselineMetadataOnly(boolean baselineMetadataOnly) {
+            this.baselineMetadataOnly = baselineMetadataOnly;
+            return this;
+        }
     }
 
     /**
@@ -298,7 +338,7 @@ public final class BaSsuIbltMeasuredComparisonBenchmark {
          */
         private final BaSsuIbltMeasuredProductionBenchmark.Result productionResult;
         /**
-         * fair H5 baseline row.
+         * MPC4J API two-direction H5 wrapper row.
          */
         private final BaSsuIbltFairMeasuredH5BaselineBenchmark.Result baselineResult;
         /**
@@ -350,14 +390,87 @@ public final class BaSsuIbltMeasuredComparisonBenchmark {
             return ratio(productionResult.getOnlineTotalBytes(), baselineResult.getOnlineTotalBytes());
         }
 
+        public double getEstimatedPaperSingleRunOfflineTimeNanos() {
+            if (!hasMeasuredBaseline()) {
+                return Double.NaN;
+            }
+            return (double) baselineResult.getOfflineTimeNanos() / baselineResult.getWrapperRuns();
+        }
+
+        public double getEstimatedPaperSingleRunOnlineTimeNanos() {
+            if (!hasMeasuredBaseline()) {
+                return Double.NaN;
+            }
+            return (double) baselineResult.getOnlineTimeNanos() / baselineResult.getWrapperRuns();
+        }
+
+        public double getEstimatedPaperSingleRunTotalTimeNanos() {
+            if (!hasMeasuredBaseline()) {
+                return Double.NaN;
+            }
+            return (double) baselineResult.getTotalTimeNanos() / baselineResult.getWrapperRuns();
+        }
+
+        public double getEstimatedPaperSingleRunOfflineBytes() {
+            if (!hasMeasuredBaseline()) {
+                return Double.NaN;
+            }
+            return (double) baselineResult.getOfflineTotalBytes() / baselineResult.getWrapperRuns();
+        }
+
+        public double getEstimatedPaperSingleRunOnlineBytes() {
+            if (!hasMeasuredBaseline()) {
+                return Double.NaN;
+            }
+            return (double) baselineResult.getOnlineTotalBytes() / baselineResult.getWrapperRuns();
+        }
+
+        public double getEstimatedPaperSingleRunTotalBytes() {
+            if (!hasMeasuredBaseline()) {
+                return Double.NaN;
+            }
+            return (double) baselineResult.getTotalBytes() / baselineResult.getWrapperRuns();
+        }
+
+        public double getOnlineTimeRatioVsPaperSingleRunEstimate() {
+            return ratio(productionResult.getOnlineTimeNanos(), getEstimatedPaperSingleRunOnlineTimeNanos());
+        }
+
+        public double getOnlineByteRatioVsPaperSingleRunEstimate() {
+            return ratio(productionResult.getOnlineTotalBytes(), getEstimatedPaperSingleRunOnlineBytes());
+        }
+
+        public double getTotalTimeRatioVsPaperSingleRunEstimate() {
+            return ratio(productionResult.getTotalTimeNanos(), getEstimatedPaperSingleRunTotalTimeNanos());
+        }
+
+        public double getTotalByteRatioVsPaperSingleRunEstimate() {
+            return ratio(productionResult.getTotalBytes(), getEstimatedPaperSingleRunTotalBytes());
+        }
+
+        public boolean isOnlineTimeTargetMet() {
+            return productionResult.getOnlineTimeNanos() / 1_000_000.0 <= ONLINE_TIME_TARGET_MILLIS;
+        }
+
+        public boolean hasMeasuredBaseline() {
+            return baselineResult.isMeasuredBaseline();
+        }
+
         public String toDisplayString() {
             return String.format(
                 Locale.ROOT,
-                "BA-SSU-IBLT measured production versus fair H5/IBLT-PSU baseline%n"
+                "BA-SSU-IBLT measured production versus H5/IBLT-PSU wrapper%n"
                     + "benchmarkKind=%s%n"
                     + "securityNotice=%s%n"
                     + "productionBenchmarkKind=%s%n"
                     + "baselineBenchmarkKind=%s%n"
+                    + "baselineName=%s%n"
+                    + "baselinePaperSemantics=%s%n"
+                    + "baselineNativePaperOneRun=%s%n"
+                    + "baselineWrapperRuns=%d%n"
+                    + "baselineMeasuredBaseline=%s%n"
+                    + "baselineMetadataOnly=%s%n"
+                    + "paperSingleRunEstimate=%s%n"
                     + "productionMeasuredProduction=%s%n"
                     + "productionReady=%s%n"
                     + "baselineMeasuredProduction=%s%n"
@@ -386,10 +499,22 @@ public final class BaSsuIbltMeasuredComparisonBenchmark {
                     + "baselineOfflineTotalBytes=%d%n"
                     + "baselineOnlineTotalBytes=%d%n"
                     + "baselineTotalBytes=%d%n"
-                    + "totalTimeRatio=%.6f%n"
-                    + "onlineTimeRatio=%.6f%n"
-                    + "totalByteRatio=%.6f%n"
-                    + "onlineByteRatio=%.6f%n"
+                    + "wrapperTotalTimeRatio=%s%n"
+                    + "wrapperOnlineTimeRatio=%s%n"
+                    + "wrapperTotalByteRatio=%s%n"
+                    + "wrapperOnlineByteRatio=%s%n"
+                    + "estimatedPaperSingleRunOfflineTimeMs=%s%n"
+                    + "estimatedPaperSingleRunOnlineTimeMs=%s%n"
+                    + "estimatedPaperSingleRunTotalTimeMs=%s%n"
+                    + "estimatedPaperSingleRunOfflineBytes=%s%n"
+                    + "estimatedPaperSingleRunOnlineBytes=%s%n"
+                    + "estimatedPaperSingleRunTotalBytes=%s%n"
+                    + "onlineTimeRatioVsPaperSingleRunEstimate=%s%n"
+                    + "onlineByteRatioVsPaperSingleRunEstimate=%s%n"
+                    + "totalTimeRatioVsPaperSingleRunEstimate=%s%n"
+                    + "totalByteRatioVsPaperSingleRunEstimate=%s%n"
+                    + "onlineTimeTargetMs=%.3f%n"
+                    + "onlineTimeTargetMet=%s%n"
                     + "speedupClaimReady=%s%n"
                     + "rawCommand=%s%n"
                     + "rawOutputPath=N/A%n"
@@ -398,6 +523,13 @@ public final class BaSsuIbltMeasuredComparisonBenchmark {
                 getSecurityNotice(),
                 productionResult.getBenchmarkKind(),
                 baselineResult.getBenchmarkKind(),
+                baselineResult.getBaselineName(),
+                baselineResult.isPaperSemantics(),
+                baselineResult.isNativePaperOneRunBaseline(),
+                baselineResult.getWrapperRuns(),
+                baselineResult.isMeasuredBaseline(),
+                baselineResult.isMetadataOnly(),
+                hasMeasuredBaseline(),
                 productionResult.isMeasuredProduction(),
                 productionResult.isProductionReady(),
                 baselineResult.isMeasuredProduction(),
@@ -426,10 +558,22 @@ public final class BaSsuIbltMeasuredComparisonBenchmark {
                 baselineResult.getOfflineTotalBytes(),
                 baselineResult.getOnlineTotalBytes(),
                 baselineResult.getTotalBytes(),
-                getTotalTimeRatio(),
-                getOnlineTimeRatio(),
-                getTotalByteRatio(),
-                getOnlineByteRatio(),
+                displayRatio(getTotalTimeRatio()),
+                displayRatio(getOnlineTimeRatio()),
+                displayRatio(getTotalByteRatio()),
+                displayRatio(getOnlineByteRatio()),
+                displayMillis(getEstimatedPaperSingleRunOfflineTimeNanos()),
+                displayMillis(getEstimatedPaperSingleRunOnlineTimeNanos()),
+                displayMillis(getEstimatedPaperSingleRunTotalTimeNanos()),
+                displayBytes(getEstimatedPaperSingleRunOfflineBytes()),
+                displayBytes(getEstimatedPaperSingleRunOnlineBytes()),
+                displayBytes(getEstimatedPaperSingleRunTotalBytes()),
+                displayRatio(getOnlineTimeRatioVsPaperSingleRunEstimate()),
+                displayRatio(getOnlineByteRatioVsPaperSingleRunEstimate()),
+                displayRatio(getTotalTimeRatioVsPaperSingleRunEstimate()),
+                displayRatio(getTotalByteRatioVsPaperSingleRunEstimate()),
+                ONLINE_TIME_TARGET_MILLIS,
+                isOnlineTimeTargetMet(),
                 isSpeedupClaimReady(),
                 "BaSsuIbltMeasuredComparisonBenchmark " + config.toArgString()
             );

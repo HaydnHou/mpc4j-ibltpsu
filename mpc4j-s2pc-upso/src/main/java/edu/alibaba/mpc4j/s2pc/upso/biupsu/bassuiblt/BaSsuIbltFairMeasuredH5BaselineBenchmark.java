@@ -25,11 +25,13 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Fair measured H5 / IBLT-PSU baseline benchmark for BA-SSU-IBLT comparisons.
+ * MPC4J API two-direction H5 / IBLT-PSU wrapper benchmark for BA-SSU-IBLT comparisons.
  *
- * <p>MPC4J's IBLT-PSU endpoint is client-output. A fair bi-output baseline runs the same IBLT-PSU protocol twice with
- * swapped roles so both parties obtain {@code X union Y}. This runner records the two measured executions as a baseline
- * row only; it never prints a speedup claim.</p>
+ * <p>MPC4J's IBLT-PSU endpoint is client-output. This wrapper runs the same IBLT-PSU protocol twice with swapped roles
+ * so both parties obtain {@code X union Y} through that API surface. It is intentionally not labeled as the paper's
+ * native one-run bi-output IBLT-PSU baseline, since the paper functionality already outputs the union to both parties
+ * in one run. This runner records the two measured executions as an engineering wrapper row only; it never prints a
+ * speedup claim.</p>
  *
  * @author donghai hou
  * @date 2026/06/06
@@ -38,19 +40,23 @@ public final class BaSsuIbltFairMeasuredH5BaselineBenchmark {
     /**
      * benchmark kind.
      */
-    public static final String BENCHMARK_KIND = "MEASURED_H5_IBLT_PSU_BASELINE";
+    public static final String BENCHMARK_KIND = "MPC4J_API_TWO_DIRECTION_H5_IBLT_PSU_WRAPPER";
     /**
      * fair baseline name.
      */
-    public static final String BASELINE_NAME = "H5_IBLT_PSU_TWO_OUTPUT_MEASURED";
+    public static final String BASELINE_NAME = "H5_IBLT_PSU_MPC4J_API_TWO_DIRECTION_WRAPPER";
     /**
      * security notice.
      */
-    public static final String SECURITY_NOTICE = "IBLT_PSU_BASELINE_MEASURED_TWO_OUTPUT";
+    public static final String SECURITY_NOTICE = "WRAPPER_ONLY_NOT_NATIVE_PAPER_ONE_RUN_BASELINE";
     /**
      * output semantics label.
      */
-    public static final String OUTPUT_SEMANTICS = "TWO_OUTPUT_BY_ROLE_SWAP";
+    public static final String OUTPUT_SEMANTICS = "TWO_OUTPUT_BY_ROLE_SWAP_OVER_SINGLE_OUTPUT_API";
+    /**
+     * number of wrapped API runs.
+     */
+    public static final int WRAPPER_RUNS = 2;
     /**
      * unknown metadata placeholder.
      */
@@ -88,6 +94,9 @@ public final class BaSsuIbltFairMeasuredH5BaselineBenchmark {
             throw new IllegalArgumentException("config must be non-null");
         }
         config.validate();
+        if (config.metadataOnly) {
+            return metadataOnlyResult(config);
+        }
         Set<ByteBuffer> senderSet = elementSet(config.elementByteLength, config.senderSize, config.overlap, true,
             config.seed);
         Set<ByteBuffer> receiverSet = elementSet(config.elementByteLength, config.receiverSize, config.overlap,
@@ -106,6 +115,13 @@ public final class BaSsuIbltFairMeasuredH5BaselineBenchmark {
             throw new IllegalStateException("IBLT-PSU baseline produced an incorrect PSI-CA");
         }
         return new Result(config, senderToReceiver, receiverToSender, expectedUnion.size(), expectedPsica);
+    }
+
+    private static Result metadataOnlyResult(Config config) {
+        int unionSize = config.senderSize + config.receiverSize - config.overlap;
+        DirectionResult senderToReceiver = new DirectionResult(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, null);
+        DirectionResult receiverToSender = new DirectionResult(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, null);
+        return new Result(config, senderToReceiver, receiverToSender, unionSize, config.overlap);
     }
 
     private static DirectionResult runOneDirection(Set<ByteBuffer> serverSet, Set<ByteBuffer> clientSet, Config config,
@@ -349,6 +365,10 @@ public final class BaSsuIbltFairMeasuredH5BaselineBenchmark {
          * protocol thread timeout.
          */
         private long timeoutMillis;
+        /**
+         * metadata-only claim-gate row.
+         */
+        private boolean metadataOnly;
 
         public Config() {
             senderSize = 1 << 10;
@@ -358,6 +378,7 @@ public final class BaSsuIbltFairMeasuredH5BaselineBenchmark {
             parallel = false;
             seed = 20260606L;
             timeoutMillis = DEFAULT_TIMEOUT_MILLIS;
+            metadataOnly = false;
         }
 
         public static Config fromArgs(String[] args) {
@@ -408,6 +429,11 @@ public final class BaSsuIbltFairMeasuredH5BaselineBenchmark {
                 case "jointimeoutmillis":
                     timeoutMillis = Long.parseLong(value);
                     break;
+                case "metadataonly":
+                case "dryrun":
+                case "claimgateonly":
+                    metadataOnly = Boolean.parseBoolean(value);
+                    break;
                 default:
                     throw new IllegalArgumentException("unknown argument: " + key);
             }
@@ -443,8 +469,9 @@ public final class BaSsuIbltFairMeasuredH5BaselineBenchmark {
         private String toArgString() {
             return String.format(
                 Locale.ROOT,
-                "m=%d n=%d overlap=%d elementBytes=%d ibltMultiplier=H5_DEFAULT parallel=%s seed=%d timeoutMillis=%d",
-                senderSize, receiverSize, overlap, elementByteLength, parallel, seed, timeoutMillis
+                "m=%d n=%d overlap=%d elementBytes=%d ibltMultiplier=H5_DEFAULT parallel=%s seed=%d "
+                    + "timeoutMillis=%d metadataOnly=%s",
+                senderSize, receiverSize, overlap, elementByteLength, parallel, seed, timeoutMillis, metadataOnly
             );
         }
 
@@ -480,6 +507,11 @@ public final class BaSsuIbltFairMeasuredH5BaselineBenchmark {
 
         public Config setTimeoutMillis(long timeoutMillis) {
             this.timeoutMillis = timeoutMillis;
+            return this;
+        }
+
+        public Config setMetadataOnly(boolean metadataOnly) {
+            this.metadataOnly = metadataOnly;
             return this;
         }
     }
@@ -550,11 +582,27 @@ public final class BaSsuIbltFairMeasuredH5BaselineBenchmark {
         }
 
         public boolean isMeasuredBaseline() {
-            return true;
+            return !config.metadataOnly;
+        }
+
+        public boolean isMetadataOnly() {
+            return config.metadataOnly;
         }
 
         public boolean isTwoOutputBaseline() {
             return true;
+        }
+
+        public boolean isPaperSemantics() {
+            return false;
+        }
+
+        public boolean isNativePaperOneRunBaseline() {
+            return false;
+        }
+
+        public int getWrapperRuns() {
+            return WRAPPER_RUNS;
         }
 
         public boolean isMeasuredProduction() {
@@ -620,11 +668,16 @@ public final class BaSsuIbltFairMeasuredH5BaselineBenchmark {
         public String toDisplayString() {
             return String.format(
                 Locale.ROOT,
-                "BA-SSU-IBLT fair measured H5/IBLT-PSU baseline%n"
+                "BA-SSU-IBLT MPC4J API two-direction H5/IBLT-PSU wrapper%n"
                     + "benchmarkKind=%s%n"
                     + "baselineName=%s%n"
+                    + "measurementMode=%s%n"
+                    + "metadataOnly=%s%n"
                     + "measuredBaseline=%s%n"
                     + "twoOutputBaseline=%s%n"
+                    + "paperSemantics=%s%n"
+                    + "nativePaperOneRunBaseline=%s%n"
+                    + "wrapperRuns=%d%n"
                     + "measuredProduction=%s%n"
                     + "productionReady=%s%n"
                     + "outputSemantics=%s%n"
@@ -644,7 +697,7 @@ public final class BaSsuIbltFairMeasuredH5BaselineBenchmark {
                     + "onlinePayloadBytes=%d%n"
                     + "offlinePacketNum=%d%n"
                     + "onlinePacketNum=%d%n"
-                    + "directionCount=2%n"
+                    + "directionCount=%d%n"
                     + "speedupClaimReady=%s%n"
                     + "rawCommand=%s%n"
                     + "rawOutputPath=N/A%n"
@@ -654,8 +707,13 @@ public final class BaSsuIbltFairMeasuredH5BaselineBenchmark {
                     + "oomStatus=false",
                 getBenchmarkKind(),
                 getBaselineName(),
+                isMetadataOnly() ? "METADATA_ONLY" : "MEASURED_WRAPPER",
+                isMetadataOnly(),
                 isMeasuredBaseline(),
                 isTwoOutputBaseline(),
+                isPaperSemantics(),
+                isNativePaperOneRunBaseline(),
+                getWrapperRuns(),
                 isMeasuredProduction(),
                 isProductionReady(),
                 getOutputSemantics(),
@@ -675,6 +733,7 @@ public final class BaSsuIbltFairMeasuredH5BaselineBenchmark {
                 getOnlinePayloadBytes(),
                 getOfflinePacketNum(),
                 getOnlinePacketNum(),
+                getWrapperRuns(),
                 isSpeedupClaimReady(),
                 "BaSsuIbltFairMeasuredH5BaselineBenchmark " + config.toArgString(),
                 gitCommit,

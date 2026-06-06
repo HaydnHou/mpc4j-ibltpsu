@@ -99,13 +99,31 @@ class BaSsuIbltProductionQueuePeelAdapter {
             throw new IllegalArgumentException("authProvider must be non-null");
         }
         BaSsuIbltUpBaUpotPublicInput publicInput = publicInput(schedule, context);
-        byte[] auth = authProvider.authMaterial(publicInput, ownLayer, ownCellView);
-        BaSsuIbltUpBaUpotLocalInput ownLocalInput = BaSsuIbltUpBaUpotLocalInput.fromCellView(
-            publicInput, ownCellView, auth
+        BaSsuIbltUpBaUpotLocalInput ownLocalInput = partyLocalProbeInput(
+            publicInput, ownCellView, ownLayer, authProvider
         );
         return BaSsuIbltProductionQueuePeelPartyLocalProbeInput.of(
             context, publicInput, ownLocalInput, ownLayer
         );
+    }
+
+    static BaSsuIbltUpBaUpotLocalInput partyLocalProbeInput(
+        BaSsuIbltUpBaUpotPublicInput publicInput, BaSsuIbltSecureCellView ownCellView,
+        BaSsuIbltProductionUnionProbeLocalLayer ownLayer, BaSsuIbltUpBaUpotAuthMaterialProvider authProvider) {
+        if (publicInput == null) {
+            throw new IllegalArgumentException("publicInput must be non-null");
+        }
+        if (ownCellView == null) {
+            throw new IllegalArgumentException("ownCellView must be non-null");
+        }
+        if (ownLayer == null) {
+            throw new IllegalArgumentException("ownLayer must be non-null");
+        }
+        if (authProvider == null) {
+            throw new IllegalArgumentException("authProvider must be non-null");
+        }
+        byte[] auth = authProvider.authMaterial(publicInput, ownLayer, ownCellView);
+        return BaSsuIbltUpBaUpotLocalInput.fromCellView(publicInput, ownCellView, auth);
     }
 
     static BaSsuIbltProductionUnionProbeOutput executeProbe(
