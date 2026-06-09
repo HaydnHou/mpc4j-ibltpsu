@@ -1,7 +1,8 @@
-package edu.alibaba.mpc4j.s2pc.pso.psu.iblt;
+package edu.alibaba.mpc4j.s2pc.pso.psu.sogs;
 
 import com.google.common.base.Preconditions;
-import edu.alibaba.mpc4j.common.structure.iblt.H5LongIblt;
+import edu.alibaba.mpc4j.common.structure.sogs.SogsPsuSketchBackend;
+import edu.alibaba.mpc4j.common.structure.sogs.SogsPsuSketchBackendFactory;
 import edu.alibaba.mpc4j.common.tool.CommonConstants;
 import edu.alibaba.mpc4j.common.tool.EnvType;
 import edu.alibaba.mpc4j.common.tool.MathPreconditions;
@@ -21,16 +22,16 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Utilities for IBLT-PSU.
+ * Utilities for SOGS-PSU.
  *
  * @author donghai hou
- * @date 2026/06/02
+ * @date 2026/06/09
  */
-class IbltPsuUtils {
+class SogsPsuUtils {
     /**
      * private constructor.
      */
-    private IbltPsuUtils() {
+    private SogsPsuUtils() {
         // empty
     }
 
@@ -79,19 +80,32 @@ class IbltPsuUtils {
     }
 
     /**
-     * Creates a PSU sketch backend.
+     * Creates a SOGS sketch backend.
      *
-     * @param envType         environment.
      * @param config          config.
      * @param threshold       threshold.
      * @param valueByteLength value byte length.
-     * @param key             hash key.
+     * @param key             public sketch key.
      * @return sketch backend.
      */
-    static H5LongIblt createIblt(
-        EnvType envType, IbltPsuConfig config, int threshold, int valueByteLength, byte[] key
+    static SogsPsuSketchBackend createSketchBackend(
+        SogsPsuConfig config, int threshold, int valueByteLength, byte[] key
     ) {
-        return H5LongIblt.create(envType, threshold, config.getIbltMultiplier(), valueByteLength, key);
+        return SogsPsuSketchBackendFactory.createSogsBackend(
+            threshold, config.getSogsAlpha(), config.getSogsDegree(), valueByteLength, sogsSeed(key)
+        );
+    }
+
+    /**
+     * Derives a SOGS position seed from the public sketch key.
+     *
+     * @param key public sketch key.
+     * @return seed.
+     */
+    static long sogsSeed(byte[] key) {
+        MathPreconditions.checkEqual("key.length", "BLOCK_BYTE_LENGTH", key.length, CommonConstants.BLOCK_BYTE_LENGTH);
+        ByteBuffer buffer = ByteBuffer.wrap(key);
+        return buffer.getLong() ^ Long.rotateLeft(buffer.getLong(), 17);
     }
 
     /**
@@ -198,12 +212,12 @@ class IbltPsuUtils {
     }
 
     /**
-     * Decodes peeled elements to IBLT keys.
+     * Decodes peeled elements to SOGS keys.
      *
      * @param envType           environment.
      * @param peeledPayload     peeled payload.
      * @param elementByteLength element byte length.
-     * @return IBLT keys.
+     * @return SOGS keys.
      */
     static long[] peeledElementKeys(EnvType envType, List<byte[]> peeledPayload, int elementByteLength) {
         long[] keys = new long[peeledPayload.size()];
@@ -266,5 +280,4 @@ class IbltPsuUtils {
         }
         return messages;
     }
-
 }

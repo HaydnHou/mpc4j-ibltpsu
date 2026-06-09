@@ -636,6 +636,19 @@ public class H5LongIblt implements LongIblt {
     }
 
     /**
+     * Gets pure singleton indicators.
+     *
+     * @return pure singleton indicators.
+     */
+    public boolean[] pureSingletons() {
+        boolean[] pureSingletons = new boolean[tableLength];
+        for (int index = 0; index < tableLength; index++) {
+            pureSingletons[index] = isPure(index);
+        }
+        return pureSingletons;
+    }
+
+    /**
      * Gets cloned counts.
      *
      * @return cloned counts.

@@ -1,10 +1,9 @@
-package edu.alibaba.mpc4j.s2pc.pso.psu.iblt;
+package edu.alibaba.mpc4j.s2pc.pso.psu.sogs;
 
 import edu.alibaba.mpc4j.common.rpc.*;
-import edu.alibaba.mpc4j.common.rpc.desc.PtoDesc;
 import edu.alibaba.mpc4j.common.rpc.utils.DataPacket;
 import edu.alibaba.mpc4j.common.rpc.utils.DataPacketHeader;
-import edu.alibaba.mpc4j.common.structure.iblt.H5LongIblt;
+import edu.alibaba.mpc4j.common.structure.sogs.SogsPsuSketchBackend;
 import edu.alibaba.mpc4j.common.tool.CommonConstants;
 import edu.alibaba.mpc4j.common.tool.MathPreconditions;
 import edu.alibaba.mpc4j.common.tool.utils.BlockUtils;
@@ -18,19 +17,19 @@ import edu.alibaba.mpc4j.s2pc.pcg.ot.cot.core.CoreCotFactory;
 import edu.alibaba.mpc4j.s2pc.pcg.ot.cot.core.CoreCotReceiver;
 import edu.alibaba.mpc4j.s2pc.pcg.ot.cot.core.CoreCotSender;
 import edu.alibaba.mpc4j.s2pc.pso.psu.AbstractPsuServer;
-import edu.alibaba.mpc4j.s2pc.pso.psu.iblt.IbltPsuPtoDesc.PtoStep;
+import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.SogsPsuPtoDesc.PtoStep;
 
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
- * IBLT-PSU server.
+ * SOGS-PSU server.
  *
  * @author donghai hou
- * @date 2026/06/02
+ * @date 2026/06/09
  */
-public class IbltPsuServer extends AbstractPsuServer {
+public class SogsPsuServer extends AbstractPsuServer {
     /**
      * MP-OPRF sender.
      */
@@ -46,17 +45,17 @@ public class IbltPsuServer extends AbstractPsuServer {
     /**
      * config.
      */
-    private final IbltPsuConfig config;
+    private final SogsPsuConfig config;
     /**
-     * protocol IBLT hash key.
+     * public SOGS sketch key.
      */
-    private byte[] ibltHashKey;
+    private byte[] sketchKey;
     /**
-     * server IBLT.
+     * server element sketch.
      */
-    private H5LongIblt serverIblt;
+    private SogsPsuSketchBackend serverSketch;
     /**
-     * server elements indexed by their byte representation.
+     * server elements indexed by byte representation.
      */
     private Set<ByteBuffer> serverElementSet;
     /**
@@ -68,12 +67,8 @@ public class IbltPsuServer extends AbstractPsuServer {
      */
     private MpOprfSenderOutput mpOprfSenderOutput;
 
-    public IbltPsuServer(Rpc serverRpc, Party clientParty, IbltPsuConfig config) {
-        this(IbltPsuPtoDesc.getInstance(), serverRpc, clientParty, config);
-    }
-
-    protected IbltPsuServer(PtoDesc ptoDesc, Rpc serverRpc, Party clientParty, IbltPsuConfig config) {
-        super(ptoDesc, serverRpc, clientParty, config);
+    public SogsPsuServer(Rpc serverRpc, Party clientParty, SogsPsuConfig config) {
+        super(SogsPsuPtoDesc.getInstance(), serverRpc, clientParty, config);
         mpOprfSender = OprfFactory.createMpOprfSender(serverRpc, clientParty, config.getMpOprfConfig());
         addSubPto(mpOprfSender);
         singletonCotReceiver = CoreCotFactory.createReceiver(serverRpc, clientParty, config.getCoreCotConfig());
@@ -108,31 +103,31 @@ public class IbltPsuServer extends AbstractPsuServer {
 
         stopWatch.start();
         initProtocolState(serverElementSet);
-        sendIbltHashKey();
+        sendSketchKey();
         mpOprfSenderOutput = mpOprfSender.oprf(clientElementSize);
         stopWatch.stop();
         long initStateTime = stopWatch.getTime(TimeUnit.MILLISECONDS);
         stopWatch.reset();
-        logStepInfo(PtoState.PTO_STEP, 1, 2, initStateTime, "Server initializes sketch and runs MP-OPRF");
+        logStepInfo(PtoState.PTO_STEP, 1, 2, initStateTime, "Server initializes SOGS sketch and runs MP-OPRF");
 
         stopWatch.start();
         runUnionPeel();
         stopWatch.stop();
         long peelTime = stopWatch.getTime(TimeUnit.MILLISECONDS);
         stopWatch.reset();
-        logStepInfo(PtoState.PTO_STEP, 2, 2, peelTime, "Server runs union peel");
+        logStepInfo(PtoState.PTO_STEP, 2, 2, peelTime, "Server runs SOGS union peel");
 
         mpOprfSenderOutput = null;
-        serverIblt = null;
+        serverSketch = null;
         this.serverElementSet = null;
         serverRemainSet = null;
         logPhaseInfo(PtoState.PTO_END);
     }
 
     private void initProtocolState(Set<ByteBuffer> inputServerElementSet) {
-        ibltHashKey = BlockUtils.randomBlock(secureRandom);
+        sketchKey = BlockUtils.randomBlock(secureRandom);
         int threshold = Math.addExact(serverElementSize, clientElementSize);
-        serverIblt = IbltPsuUtils.createIblt(envType, config, threshold, elementByteLength, ibltHashKey);
+        serverSketch = SogsPsuUtils.createSketchBackend(config, threshold, elementByteLength, sketchKey);
         serverElementSet = new HashSet<>(serverElementSize);
         serverRemainSet = new HashSet<>(serverElementSize);
         for (ByteBuffer element : inputServerElementSet) {
@@ -140,26 +135,26 @@ public class IbltPsuServer extends AbstractPsuServer {
             ByteBuffer elementBuffer = ByteBuffer.wrap(elementBytes);
             serverElementSet.add(elementBuffer);
             serverRemainSet.add(ByteBuffer.wrap(BytesUtils.clone(elementBytes)));
-            serverIblt.add(IbltPsuUtils.elementKey(envType, elementBytes), elementBytes);
+            serverSketch.add(SogsPsuUtils.elementKey(envType, elementBytes), elementBytes);
         }
     }
 
-    private void sendIbltHashKey() {
+    private void sendSketchKey() {
         List<byte[]> keyPayload = new ArrayList<>(1);
-        keyPayload.add(ibltHashKey);
+        keyPayload.add(sketchKey);
         DataPacketHeader keyHeader = new DataPacketHeader(
-            encodeTaskId, getPtoDesc().getPtoId(), PtoStep.SERVER_SEND_IBLT_KEY.ordinal(), extraInfo,
+            encodeTaskId, getPtoDesc().getPtoId(), PtoStep.SERVER_SEND_SKETCH_KEY.ordinal(), extraInfo,
             ownParty().getPartyId(), otherParty().getPartyId()
         );
         rpc.send(DataPacket.fromByteArrayList(keyHeader, keyPayload));
     }
 
     private void runUnionPeel() throws MpcAbortException {
-        boolean[] peeled = new boolean[serverIblt.tableLength()];
-        int maxRound = Math.max(1, serverIblt.tableLength());
+        boolean[] peeled = new boolean[serverSketch.tableSize()];
+        int maxRound = Math.max(1, serverSketch.tableSize());
         long nextExtraInfo = extraInfo;
         try {
-            int[] probeIndexes = IbltPsuUtils.allUnpeeledPositions(peeled);
+            int[] probeIndexes = SogsPsuUtils.allUnpeeledPositions(peeled);
             for (int round = 0; round <= maxRound; round++) {
                 long roundExtraInfo = nextExtraInfo++;
                 if (probeIndexes.length == 0) {
@@ -176,7 +171,7 @@ public class IbltPsuServer extends AbstractPsuServer {
                 handlePeeledElements(peeledPayload, peeled);
                 probeIndexes = nextProbeIndexes(peeledPayload, peeled);
             }
-            throw new MpcAbortException("IBLT union peel exceeds the maximum round number");
+            throw new MpcAbortException("SOGS union peel exceeds the maximum round number");
         } finally {
             extraInfo = nextExtraInfo;
         }
@@ -184,7 +179,7 @@ public class IbltPsuServer extends AbstractPsuServer {
 
     private byte[][] receiveClientSingletonElements(long roundExtraInfo, int[] probeIndexes) throws MpcAbortException {
         int probeNum = probeIndexes.length;
-        int[] counts = serverIblt.counts();
+        int[] counts = serverSketch.counts();
         boolean[] choices = new boolean[probeNum];
         for (int i = 0; i < probeNum; i++) {
             choices[i] = counts[probeIndexes[i]] == 0;
@@ -195,7 +190,7 @@ public class IbltPsuServer extends AbstractPsuServer {
             otherParty().getPartyId(), ownParty().getPartyId()
         );
         List<byte[]> singletonPayload = rpc.receive(singletonHeader).getPayload();
-        return IbltPsuUtils.handleCotPayload(
+        return SogsPsuUtils.handleCotPayload(
             envType, cotReceiverOutput, singletonPayload, Byte.BYTES + elementByteLength
         );
     }
@@ -207,33 +202,33 @@ public class IbltPsuServer extends AbstractPsuServer {
         MathPreconditions.checkEqual(
             "clientSingletonElements.length", "probeNum", clientSingletonElements.length, probeNum
         );
-        int[] counts = serverIblt.counts();
-        boolean[] pureSingletons = serverIblt.pureSingletons();
-        byte[][] values = serverIblt.valueSums();
+        int[] counts = serverSketch.counts();
+        boolean[] pureSingletons = serverSketch.pureSingletons();
+        byte[][] values = serverSketch.valueSums();
         int messageByteLength = Math.max(Byte.BYTES + elementByteLength, CommonConstants.BLOCK_BYTE_LENGTH);
         byte[][] message0 = new byte[probeNum][messageByteLength];
         byte[][] message1 = new byte[probeNum][messageByteLength];
         for (int i = 0; i < probeNum; i++) {
             int index = probeIndexes[i];
             if (counts[index] == 1 && pureSingletons[index]) {
-                message0[i] = IbltPsuUtils.pad(
-                    IbltPsuUtils.encodeOptionalElement(values[index], elementByteLength), messageByteLength
+                message0[i] = SogsPsuUtils.pad(
+                    SogsPsuUtils.encodeOptionalElement(values[index], elementByteLength), messageByteLength
                 );
-                byte[] seed = IbltPsuUtils.seed(envType, mpOprfSenderOutput.getPrf(values[index]));
-                message1[i] = IbltPsuUtils.seedTag(envType, seed, round, index);
+                byte[] seed = SogsPsuUtils.seed(envType, mpOprfSenderOutput.getPrf(values[index]));
+                message1[i] = SogsPsuUtils.seedTag(envType, seed, round, index);
             } else {
-                byte[] clientElement = IbltPsuUtils.decodeOptionalElement(
+                byte[] clientElement = SogsPsuUtils.decodeOptionalElement(
                     clientSingletonElements[i], elementByteLength
                 );
                 if (clientElement == null) {
                     continue;
                 }
-                byte[] seed = IbltPsuUtils.seed(envType, mpOprfSenderOutput.getPrf(clientElement));
-                message1[i] = IbltPsuUtils.seedTag(envType, seed, round, index);
+                byte[] seed = SogsPsuUtils.seed(envType, mpOprfSenderOutput.getPrf(clientElement));
+                message1[i] = SogsPsuUtils.seedTag(envType, seed, round, index);
             }
         }
         CotSenderOutput cotSenderOutput = unionCotSender.send(probeNum);
-        List<byte[]> unionPayload = IbltPsuUtils.generateCotPayload(
+        List<byte[]> unionPayload = SogsPsuUtils.generateCotPayload(
             envType, cotSenderOutput, message0, message1, messageByteLength
         );
         DataPacketHeader unionHeader = new DataPacketHeader(
@@ -253,20 +248,20 @@ public class IbltPsuServer extends AbstractPsuServer {
 
     private void handlePeeledElements(List<byte[]> peeledPayload, boolean[] peeled) throws MpcAbortException {
         for (byte[] encoded : peeledPayload) {
-            int index = IbltPsuUtils.decodePeeledIndex(encoded);
+            int index = SogsPsuUtils.decodePeeledIndex(encoded);
             MpcAbortPreconditions.checkArgument(index >= 0 && index < peeled.length);
             peeled[index] = true;
-            byte[] element = IbltPsuUtils.decodePeeledElement(encoded, elementByteLength);
+            byte[] element = SogsPsuUtils.decodePeeledElement(encoded, elementByteLength);
             ByteBuffer elementBuffer = ByteBuffer.wrap(element);
             if (serverElementSet.contains(elementBuffer) && serverRemainSet.remove(elementBuffer)) {
-                serverIblt.remove(IbltPsuUtils.elementKey(envType, element), element);
+                serverSketch.remove(SogsPsuUtils.elementKey(envType, element), element);
             }
         }
     }
 
     private int[] nextProbeIndexes(List<byte[]> peeledPayload, boolean[] peeled) {
-        long[] peeledKeys = IbltPsuUtils.peeledElementKeys(envType, peeledPayload, elementByteLength);
-        return serverIblt.uniquePositions(peeledKeys, peeled);
+        long[] peeledKeys = SogsPsuUtils.peeledElementKeys(envType, peeledPayload, elementByteLength);
+        return serverSketch.uniquePositions(peeledKeys, peeled);
     }
 
     private void sendFinish(long roundExtraInfo) throws MpcAbortException {

@@ -15,6 +15,9 @@ import edu.alibaba.mpc4j.s2pc.pso.psu.iblt.IbltPsuConfig;
 import edu.alibaba.mpc4j.s2pc.pso.psu.iblt.IbltPsuServer;
 import edu.alibaba.mpc4j.s2pc.pso.psu.jsz22.*;
 import edu.alibaba.mpc4j.s2pc.pso.psu.krtw19.*;
+import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.SogsPsuClient;
+import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.SogsPsuConfig;
+import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.SogsPsuServer;
 import edu.alibaba.mpc4j.s2pc.pso.psu.zcl23.*;
 
 /**
@@ -68,6 +71,10 @@ public class PsuFactory implements PtoFactory {
          * IBLT-based PSU
          */
         IBLT,
+        /**
+         * SOGS-based PSU
+         */
+        SOGS,
     }
 
     /**
@@ -97,6 +104,8 @@ public class PsuFactory implements PtoFactory {
                 return new Czz24CwOprfPsuServer(serverRpc, clientParty, (Czz24CwOprfPsuConfig) config);
             case IBLT:
                 return new IbltPsuServer(serverRpc, clientParty, (IbltPsuConfig) config);
+            case SOGS:
+                return new SogsPsuServer(serverRpc, clientParty, (SogsPsuConfig) config);
             default:
                 throw new IllegalArgumentException("Invalid " + PsuType.class.getSimpleName() + ": " + type.name());
         }
@@ -170,6 +179,8 @@ public class PsuFactory implements PtoFactory {
                 return new Czz24CwOprfPsuClient(clientRpc, serverParty, (Czz24CwOprfPsuConfig) config);
             case IBLT:
                 return new IbltPsuClient(clientRpc, serverParty, (IbltPsuConfig) config);
+            case SOGS:
+                return new SogsPsuClient(clientRpc, serverParty, (SogsPsuConfig) config);
             default:
                 throw new IllegalArgumentException("Invalid " + PsuType.class.getSimpleName() + ": " + type.name());
         }

@@ -115,7 +115,8 @@ public class IbltPsuTest extends AbstractTwoPartyMemoryRpcPto {
     public void testCreateConfig() {
         Properties properties = new Properties();
         properties.setProperty(PsuMain.PTO_NAME_KEY, PsuFactory.PsuType.IBLT.name());
-        Assert.assertEquals(PsuFactory.PsuType.IBLT, PsuConfigUtils.createConfig(properties).getPtoType());
+        IbltPsuConfig defaultConfig = (IbltPsuConfig) PsuConfigUtils.createConfig(properties);
+        Assert.assertEquals(PsuFactory.PsuType.IBLT, defaultConfig.getPtoType());
     }
 
     @Test
@@ -144,9 +145,19 @@ public class IbltPsuTest extends AbstractTwoPartyMemoryRpcPto {
         testPto(sets.get(0), sets.get(1), elementByteLength, parallel);
     }
 
+    private void testPto(int serverSize, int clientSize, int elementByteLength, boolean parallel,
+                         IbltPsuConfig config) {
+        ArrayList<Set<ByteBuffer>> sets = PsoUtils.generateBytesSets(serverSize, clientSize, elementByteLength);
+        testPto(sets.get(0), sets.get(1), elementByteLength, parallel, config);
+    }
+
     private void testPto(Set<ByteBuffer> serverSet, Set<ByteBuffer> clientSet,
                          int elementByteLength, boolean parallel) {
-        IbltPsuConfig config = new IbltPsuConfig.Builder().build();
+        testPto(serverSet, clientSet, elementByteLength, parallel, new IbltPsuConfig.Builder().build());
+    }
+
+    private void testPto(Set<ByteBuffer> serverSet, Set<ByteBuffer> clientSet,
+                         int elementByteLength, boolean parallel, IbltPsuConfig config) {
         PsuServer server = PsuFactory.createServer(firstRpc, secondRpc.ownParty(), config);
         PsuClient client = PsuFactory.createClient(secondRpc, firstRpc.ownParty(), config);
         server.setParallel(parallel);

@@ -2,6 +2,7 @@ package edu.alibaba.mpc4j.s2pc.pso.main.psu;
 
 import edu.alibaba.mpc4j.common.rpc.desc.SecurityModel;
 import edu.alibaba.mpc4j.common.structure.okve.dokvs.gf2e.Gf2eDokvsFactory.Gf2eDokvsType;
+import edu.alibaba.mpc4j.common.tool.utils.PropertiesUtils;
 import edu.alibaba.mpc4j.s2pc.aby.pcg.osn.rosn.RosnConfig;
 import edu.alibaba.mpc4j.s2pc.aby.pcg.osn.rosn.RosnFactory;
 import edu.alibaba.mpc4j.s2pc.aby.pcg.osn.rosn.RosnFactory.RosnType;
@@ -17,6 +18,7 @@ import edu.alibaba.mpc4j.s2pc.pso.psu.iblt.IbltPsuConfig;
 import edu.alibaba.mpc4j.s2pc.pso.psu.jsz22.Jsz22SfcPsuConfig;
 import edu.alibaba.mpc4j.s2pc.pso.psu.jsz22.Jsz22SfsPsuConfig;
 import edu.alibaba.mpc4j.s2pc.pso.psu.krtw19.Krtw19PsuConfig;
+import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.SogsPsuConfig;
 import edu.alibaba.mpc4j.s2pc.pso.psu.zcl23.Zcl23PkePsuConfig;
 import edu.alibaba.mpc4j.s2pc.pso.psu.zcl23.Zcl23SkePsuConfig;
 
@@ -34,6 +36,19 @@ public class PsuConfigUtils {
      * CP_INX_PIR_TYPE name
      */
     public final static String ROSN_TYPE = "rosn_type";
+    /**
+     * H5-IBLT table multiplier.
+     */
+    public final static String IBLT_MULTIPLIER = "iblt_multiplier";
+    /**
+     * SOGS graph table multiplier.
+     */
+    public final static String SOGS_ALPHA = "sogs_alpha";
+    /**
+     * SOGS graph degree.
+     */
+    public final static String SOGS_DEGREE = "sogs_degree";
+
     /**
      * private constructor.
      */
@@ -65,7 +80,9 @@ public class PsuConfigUtils {
             case CZZ24_CW_OPRF:
                 return createCzz24CwOprfPsuConfig();
             case IBLT:
-                return createIbltPsuConfig();
+                return createIbltPsuConfig(properties);
+            case SOGS:
+                return createSogsPsuConfig(properties);
             default:
                 throw new IllegalArgumentException("Invalid " + PsuType.class.getSimpleName() + ": " + psuType.name());
         }
@@ -121,7 +138,22 @@ public class PsuConfigUtils {
         return new Czz24CwOprfPsuConfig.Builder().build();
     }
 
-    private static IbltPsuConfig createIbltPsuConfig() {
-        return new IbltPsuConfig.Builder().build();
+    private static IbltPsuConfig createIbltPsuConfig(Properties properties) {
+        IbltPsuConfig.Builder builder = new IbltPsuConfig.Builder();
+        if (PropertiesUtils.containsKeyword(properties, IBLT_MULTIPLIER)) {
+            builder.setIbltMultiplier(PropertiesUtils.readDouble(properties, IBLT_MULTIPLIER));
+        }
+        return builder.build();
+    }
+
+    private static SogsPsuConfig createSogsPsuConfig(Properties properties) {
+        SogsPsuConfig.Builder builder = new SogsPsuConfig.Builder();
+        if (PropertiesUtils.containsKeyword(properties, SOGS_ALPHA)) {
+            builder.setSogsAlpha(PropertiesUtils.readDouble(properties, SOGS_ALPHA));
+        }
+        if (PropertiesUtils.containsKeyword(properties, SOGS_DEGREE)) {
+            builder.setSogsDegree(PropertiesUtils.readInt(properties, SOGS_DEGREE));
+        }
+        return builder.build();
     }
 }
