@@ -28,7 +28,7 @@ public class Tcl23UpsuNativeUtils {
      * @param coeffModulusBits  coeffs modulus bit.
      * @return encryption parameters.
      */
-    static native byte[] genEncryptionParameters(int polyModulusDegree, long plainModulus, int[] coeffModulusBits);
+    public static native byte[] genEncryptionParameters(int polyModulusDegree, long plainModulus, int[] coeffModulusBits);
 
     /**
      * key generation.
@@ -36,7 +36,7 @@ public class Tcl23UpsuNativeUtils {
      * @param encryptionParameters encryption parameters.
      * @return key pair.
      */
-    static native List<byte[]> keyGen(byte[] encryptionParameters);
+    public static native List<byte[]> keyGen(byte[] encryptionParameters);
 
     /**
      * preprocess database.
@@ -46,7 +46,7 @@ public class Tcl23UpsuNativeUtils {
      * @param psLowDegree          Paterson-Stockmeyer low degree.
      * @return plaintexts in NTT form.
      */
-    static native List<byte[]> preprocessDatabase(byte[] encryptionParameters, long[][] coeffs, int psLowDegree);
+    public static native List<byte[]> preprocessDatabase(byte[] encryptionParameters, long[][] coeffs, int psLowDegree);
 
     /**
      * compute all powers of the query.
@@ -59,7 +59,7 @@ public class Tcl23UpsuNativeUtils {
      * @param psLowDegree      Paterson-Stockmeyer low degree.
      * @return encrypted query powers.
      */
-    static native List<byte[]> computeEncryptedPowers(byte[] encryptionParams, byte[] relinKeys,
+    public static native List<byte[]> computeEncryptedPowers(byte[] encryptionParams, byte[] relinKeys,
                                                       List<byte[]> encryptedQuery, int[][] parentPowers,
                                                       int[] sourcePowers, int psLowDegree);
 
@@ -74,7 +74,7 @@ public class Tcl23UpsuNativeUtils {
      * @param mask             random mask.
      * @return encrypted matches.
      */
-    static native byte[] optComputeMatches(byte[] encryptionParams, byte[] relinKeys, List<byte[]> plaintexts,
+    public static native byte[] optComputeMatches(byte[] encryptionParams, byte[] relinKeys, List<byte[]> plaintexts,
                                            List<byte[]> ciphertexts, int psLowDegree, long[] mask);
 
     /**
@@ -86,7 +86,7 @@ public class Tcl23UpsuNativeUtils {
      * @param mask             random mask.
      * @return encrypted matches.
      */
-    static native byte[] naiveComputeMatches(byte[] encryptionParams, List<byte[]> plaintexts, List<byte[]> ciphertexts,
+    public static native byte[] naiveComputeMatches(byte[] encryptionParams, List<byte[]> plaintexts, List<byte[]> ciphertexts,
                                              long[] mask);
 
     /**
@@ -97,7 +97,7 @@ public class Tcl23UpsuNativeUtils {
      * @param plainQuery       query in plaintext.
      * @return encrypted query.
      */
-    static native List<byte[]> generateQuery(byte[] encryptionParams, byte[] secretKey, long[][] plainQuery);
+    public static native List<byte[]> generateQuery(byte[] encryptionParams, byte[] secretKey, long[][] plainQuery);
 
     /**
      * decrypt response.
@@ -107,5 +107,5 @@ public class Tcl23UpsuNativeUtils {
      * @param encryptedResponse response.
      * @return plaintext in coefficient form.
      */
-    static native long[] decodeReply(byte[] encryptionParams, byte[] secretKey, byte[] encryptedResponse);
+    public static native long[] decodeReply(byte[] encryptionParams, byte[] secretKey, byte[] encryptedResponse);
 }

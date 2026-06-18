@@ -3,6 +3,9 @@ package edu.alibaba.mpc4j.s2pc.upso.upsu;
 import edu.alibaba.mpc4j.common.rpc.Party;
 import edu.alibaba.mpc4j.common.rpc.Rpc;
 import edu.alibaba.mpc4j.common.rpc.pto.PtoFactory;
+import edu.alibaba.mpc4j.s2pc.upso.upsu.sogs.mc.McSogsUpsuConfig;
+import edu.alibaba.mpc4j.s2pc.upso.upsu.sogs.mc.McSogsUpsuReceiver;
+import edu.alibaba.mpc4j.s2pc.upso.upsu.sogs.mc.McSogsUpsuSender;
 import edu.alibaba.mpc4j.s2pc.upso.upsu.tcl23.Tcl23UpsuConfig;
 import edu.alibaba.mpc4j.s2pc.upso.upsu.tcl23.Tcl23UpsuReceiver;
 import edu.alibaba.mpc4j.s2pc.upso.upsu.tcl23.Tcl23UpsuSender;
@@ -38,6 +41,10 @@ public class UpsuFactory implements PtoFactory {
          * ZLP24 + PEQT
          */
         ZLP24_PEQT,
+        /**
+         * MC-SOGS UPSU.
+         */
+        MC_SOGS,
     }
 
     /**
@@ -57,6 +64,8 @@ public class UpsuFactory implements PtoFactory {
                 return new Zlp24PkeUpsuSender(senderRpc, receiverParty, (Zlp24PkeUpsuConfig) config);
             case ZLP24_PEQT:
                 return new Zlp24PeqtUpsuSender(senderRpc, receiverParty, (Zlp24PeqtUpsuConfig) config);
+            case MC_SOGS:
+                return new McSogsUpsuSender(senderRpc, receiverParty, (McSogsUpsuConfig) config);
             default:
                 throw new IllegalArgumentException("Invalid " + UpsuType.class.getSimpleName() + ": " + type.name());
         }
@@ -79,6 +88,8 @@ public class UpsuFactory implements PtoFactory {
                 return new Zlp24PkeUpsuReceiver(receiverRpc, senderParty, (Zlp24PkeUpsuConfig) config);
             case ZLP24_PEQT:
                 return new Zlp24PeqtUpsuReceiver(receiverRpc, senderParty, (Zlp24PeqtUpsuConfig) config);
+            case MC_SOGS:
+                return new McSogsUpsuReceiver(receiverRpc, senderParty, (McSogsUpsuConfig) config);
             default:
                 throw new IllegalArgumentException("Invalid " + UpsuType.class.getSimpleName() + ": " + type.name());
         }
