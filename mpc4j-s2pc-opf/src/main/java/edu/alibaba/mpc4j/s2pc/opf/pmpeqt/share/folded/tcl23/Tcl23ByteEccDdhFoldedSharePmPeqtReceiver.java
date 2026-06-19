@@ -1,0 +1,194 @@
+package edu.alibaba.mpc4j.s2pc.opf.pmpeqt.share.folded.tcl23;
+
+import edu.alibaba.mpc4j.common.rpc.MpcAbortException;
+import edu.alibaba.mpc4j.common.rpc.MpcAbortPreconditions;
+import edu.alibaba.mpc4j.common.rpc.Party;
+import edu.alibaba.mpc4j.common.rpc.PtoState;
+import edu.alibaba.mpc4j.common.rpc.Rpc;
+import edu.alibaba.mpc4j.common.rpc.utils.DataPacket;
+import edu.alibaba.mpc4j.common.rpc.utils.DataPacketHeader;
+import edu.alibaba.mpc4j.common.tool.CommonConstants;
+import edu.alibaba.mpc4j.common.tool.crypto.ecc.ByteEccFactory;
+import edu.alibaba.mpc4j.common.tool.crypto.ecc.ByteMulEcc;
+import edu.alibaba.mpc4j.common.tool.crypto.hash.Hash;
+import edu.alibaba.mpc4j.common.tool.crypto.hash.HashFactory;
+import edu.alibaba.mpc4j.common.tool.utils.CommonUtils;
+import edu.alibaba.mpc4j.common.tool.utils.LongUtils;
+import edu.alibaba.mpc4j.s2pc.aby.basics.z2.SquareZ2Vector;
+import edu.alibaba.mpc4j.s2pc.aby.basics.z2.Z2cFactory;
+import edu.alibaba.mpc4j.s2pc.aby.basics.z2.Z2cParty;
+import edu.alibaba.mpc4j.s2pc.aby.operator.row.peqt.PeqtFactory;
+import edu.alibaba.mpc4j.s2pc.aby.operator.row.peqt.PeqtParty;
+import edu.alibaba.mpc4j.s2pc.opf.pmpeqt.share.folded.AbstractFoldedSharePmPeqtReceiver;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
+
+import static edu.alibaba.mpc4j.s2pc.opf.pmpeqt.share.folded.tcl23.Tcl23ByteEccDdhFoldedSharePmPeqtPtoDesc.PtoStep;
+import static edu.alibaba.mpc4j.s2pc.opf.pmpeqt.share.folded.tcl23.Tcl23ByteEccDdhFoldedSharePmPeqtPtoDesc.getInstance;
+
+/**
+ * TCL23 Byte-ECC-DDH based folded share-output PM-PEQT receiver.
+ *
+ * @author donghai hou
+ * @date 2026/06/19
+ */
+public class Tcl23ByteEccDdhFoldedSharePmPeqtReceiver extends AbstractFoldedSharePmPeqtReceiver {
+    /**
+     * ECC scalar alpha.
+     */
+    private byte[] alpha;
+    /**
+     * Byte ECC.
+     */
+    private ByteMulEcc ecc;
+    /**
+     * share-output PEQT receiver.
+     */
+    private final PeqtParty peqtReceiver;
+    /**
+     * Z2 circuit receiver for hidden OR folding.
+     */
+    private final Z2cParty z2cReceiver;
+    /**
+     * Whether to use compact PEQT digest byte length.
+     */
+    private final boolean compactPeqtByteLength;
+
+    public Tcl23ByteEccDdhFoldedSharePmPeqtReceiver(Rpc receiverRpc, Party senderParty,
+                                                    Tcl23ByteEccDdhFoldedSharePmPeqtConfig config) {
+        super(getInstance(), receiverRpc, senderParty, config);
+        peqtReceiver = PeqtFactory.createReceiver(receiverRpc, senderParty, config.getPeqtConfig());
+        addSubPto(peqtReceiver);
+        z2cReceiver = Z2cFactory.createReceiver(receiverRpc, senderParty, config.getZ2cConfig());
+        addSubPto(z2cReceiver);
+        compactPeqtByteLength = config.isCompactPeqtByteLength();
+    }
+
+    @Override
+    public void init(int maxRow, int maxColumn) throws MpcAbortException {
+        setInitInput(maxRow, maxColumn);
+        logPhaseInfo(PtoState.INIT_BEGIN);
+
+        stopWatch.start();
+        int maxSize = maxRow * maxColumn;
+        ecc = ByteEccFactory.createMulInstance(envType);
+        alpha = ecc.randomScalar(secureRandom);
+        peqtReceiver.init(getPeqtBitLength(maxSize), maxSize);
+        z2cReceiver.init(Math.max(1, (maxRow - 1) * maxColumn));
+        stopWatch.stop();
+        long initTime = stopWatch.getTime(TimeUnit.MILLISECONDS);
+        stopWatch.reset();
+        logStepInfo(PtoState.INIT_STEP, 1, 1, initTime);
+
+        logPhaseInfo(PtoState.INIT_END);
+    }
+
+    @Override
+    public SquareZ2Vector foldedSharePmPeqt(byte[][][] inputMatrix, int byteLength, int row, int column)
+        throws MpcAbortException {
+        setPtoInput(inputMatrix, byteLength, row, column);
+        logPhaseInfo(PtoState.PTO_BEGIN);
+
+        stopWatch.start();
+        List<byte[]> receiverPrfs = computeReceiverPrfs(inputMatrix);
+        DataPacketHeader receiverPrfPayloadHeader = new DataPacketHeader(
+            encodeTaskId, getPtoDesc().getPtoId(), PtoStep.RECEIVER_SEND_PRF.ordinal(), extraInfo,
+            rpc.ownParty().getPartyId(), otherParty().getPartyId()
+        );
+        rpc.send(DataPacket.fromByteArrayList(receiverPrfPayloadHeader, receiverPrfs));
+        DataPacketHeader senderPrfPayloadHeader = new DataPacketHeader(
+            encodeTaskId, getPtoDesc().getPtoId(), PtoStep.SENDER_SEND_PERMUTED_PRF.ordinal(), extraInfo,
+            otherParty().getPartyId(), rpc.ownParty().getPartyId()
+        );
+        List<byte[]> senderPrfPayload = rpc.receive(senderPrfPayloadHeader).getPayload();
+        MpcAbortPreconditions.checkArgument(senderPrfPayload.size() == row * column);
+        byte[][] senderPrfDigests = computeSenderPrfDigests(senderPrfPayload);
+        stopWatch.stop();
+        long ddhTime = stopWatch.getTime(TimeUnit.MILLISECONDS);
+        stopWatch.reset();
+        logStepInfo(PtoState.PTO_STEP, 1, 3, ddhTime, "receiver computes anonymous DDH carrier");
+
+        stopWatch.start();
+        SquareZ2Vector hitShare = peqtReceiver.peqt(getPeqtBitLength(row * column), senderPrfDigests);
+        stopWatch.stop();
+        long peqtTime = stopWatch.getTime(TimeUnit.MILLISECONDS);
+        stopWatch.reset();
+        logStepInfo(PtoState.PTO_STEP, 2, 3, peqtTime, "receiver executes share-output PEQT");
+
+        stopWatch.start();
+        SquareZ2Vector foldedHitShare = foldHitShares(hitShare);
+        stopWatch.stop();
+        long foldTime = stopWatch.getTime(TimeUnit.MILLISECONDS);
+        stopWatch.reset();
+        logStepInfo(PtoState.PTO_STEP, 3, 3, foldTime, "receiver folds hit shares");
+
+        logPhaseInfo(PtoState.PTO_END);
+        return foldedHitShare;
+    }
+
+    private List<byte[]> computeReceiverPrfs(byte[][][] inputMatrix) {
+        List<byte[]> inputList = new ArrayList<>(row * column);
+        for (int i = 0; i < row; i++) {
+            for (int j = 0; j < column; j++) {
+                inputList.add(inputMatrix[i][j]);
+            }
+        }
+        Stream<byte[]> inputStream = inputList.stream();
+        inputStream = parallel ? inputStream.parallel() : inputStream;
+        return inputStream
+            .map(input -> ecc.hashToCurve(input))
+            .map(hash -> ecc.mul(hash, alpha))
+            .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+    }
+
+    private byte[][] computeSenderPrfDigests(List<byte[]> senderPrfPayload) {
+        Hash peqtHash = HashFactory.createInstance(envType, getPeqtByteLength(row * column));
+        IntStream intStream = IntStream.range(0, row * column);
+        intStream = parallel ? intStream.parallel() : intStream;
+        return intStream
+            .mapToObj(i -> ecc.mul(senderPrfPayload.get(i), alpha))
+            .map(peqtHash::digestToBytes)
+            .toArray(byte[][]::new);
+    }
+
+    private SquareZ2Vector foldHitShares(SquareZ2Vector hitShare) throws MpcAbortException {
+        List<SquareZ2Vector> level = new ArrayList<>(row);
+        for (int i = 0; i < row; i++) {
+            level.add(hitShare.getPointsWithFixedSpace(i * column, column, 1));
+        }
+        while (level.size() > 1) {
+            int pairNum = level.size() / 2;
+            SquareZ2Vector[] left = new SquareZ2Vector[pairNum];
+            SquareZ2Vector[] right = new SquareZ2Vector[pairNum];
+            for (int i = 0; i < pairNum; i++) {
+                left[i] = level.get(2 * i);
+                right[i] = level.get(2 * i + 1);
+            }
+            SquareZ2Vector[] foldedPairs = z2cReceiver.or(left, right);
+            List<SquareZ2Vector> next = new ArrayList<>((level.size() + 1) / 2);
+            next.addAll(Arrays.asList(foldedPairs));
+            if ((level.size() & 1) == 1) {
+                next.add(level.get(level.size() - 1));
+            }
+            level = next;
+        }
+        return level.get(0);
+    }
+
+    private int getPeqtByteLength(int size) {
+        int bitLength = CommonConstants.STATS_BIT_LENGTH + 2 * LongUtils.ceilLog2((long) size);
+        if (!compactPeqtByteLength) {
+            bitLength += 7;
+        }
+        return CommonUtils.getByteLength(bitLength);
+    }
+
+    private int getPeqtBitLength(int size) {
+        return getPeqtByteLength(size) * Byte.SIZE;
+    }
+}
