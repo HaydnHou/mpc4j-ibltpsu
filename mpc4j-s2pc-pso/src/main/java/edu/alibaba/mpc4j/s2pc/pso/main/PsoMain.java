@@ -8,6 +8,7 @@ import edu.alibaba.mpc4j.s2pc.pso.main.psu.OoPsuMain;
 import edu.alibaba.mpc4j.s2pc.pso.main.psu.PsuBlackIpMain;
 import edu.alibaba.mpc4j.s2pc.pso.main.psu.PsuMain;
 import edu.alibaba.mpc4j.s2pc.pso.main.scpsi.ScpsiMain;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsMpsuNettyMain;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,6 +83,11 @@ public class PsoMain {
                 case ScpsiMain.PTO_TYPE_NAME: {
                     ScpsiMain scpsiMain = new ScpsiMain(properties, ownName);
                     scpsiMain.runNetty();
+                    break;
+                }
+                case MpSogsMpsuNettyMain.PTO_TYPE_NAME: {
+                    MpSogsMpsuNettyMain mpSogsMpsuMain = new MpSogsMpsuNettyMain(properties, ownName);
+                    mpSogsMpsuMain.runNetty();
                     break;
                 }
                 default:

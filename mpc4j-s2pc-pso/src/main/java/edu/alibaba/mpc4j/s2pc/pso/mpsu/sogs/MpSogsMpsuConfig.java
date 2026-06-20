@@ -1,0 +1,111 @@
+package edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs;
+
+import com.google.common.base.Preconditions;
+
+/**
+ * MP-SOGS MPSU configuration for the prototype line.
+ *
+ * @author donghai hou
+ * @date 2026/06/20
+ */
+public class MpSogsMpsuConfig {
+    /**
+     * Default maximum cells per secure-uPeel batch.
+     */
+    public static final int DEFAULT_MAX_BATCH_CELLS = 1 << 20;
+    /**
+     * Secure peel implementation type.
+     */
+    public enum SecurePeelType {
+        /**
+         * Dummy clear adapter, not secure.
+         */
+        DUMMY_CLEAR,
+        /**
+         * ABB3 three-party semi-honest backend.
+         */
+        ABB3,
+        /**
+         * Placeholder for a future generic n-party semi-honest MPC implementation.
+         */
+        GENERIC_MPC,
+        /**
+         * Placeholder for a future optimized batched implementation.
+         */
+        OPT_BATCH,
+    }
+
+    private final MpSogsMpsuParams params;
+    private final SecurePeelType securePeelType;
+    private final MpSogsMpsuFactory.MpSogsMpsuType ptoType;
+    private final int maxHashSeedRetries;
+    private final int maxBatchCells;
+
+    private MpSogsMpsuConfig(Builder builder) {
+        params = Preconditions.checkNotNull(builder.params);
+        securePeelType = Preconditions.checkNotNull(builder.securePeelType);
+        ptoType = MpSogsMpsuFactory.MpSogsMpsuType.MP_SOGS;
+        Preconditions.checkArgument(builder.maxHashSeedRetries > 0,
+            "maxHashSeedRetries must be positive: %s", builder.maxHashSeedRetries);
+        maxHashSeedRetries = builder.maxHashSeedRetries;
+        Preconditions.checkArgument(builder.maxBatchCells > 0,
+            "maxBatchCells must be positive: %s", builder.maxBatchCells);
+        maxBatchCells = builder.maxBatchCells;
+    }
+
+    public MpSogsMpsuParams getParams() {
+        return params;
+    }
+
+    public SecurePeelType getSecurePeelType() {
+        return securePeelType;
+    }
+
+    public MpSogsMpsuFactory.MpSogsMpsuType getPtoType() {
+        return ptoType;
+    }
+
+    public int getMaxHashSeedRetries() {
+        return maxHashSeedRetries;
+    }
+
+    public int getMaxBatchCells() {
+        return maxBatchCells;
+    }
+
+    /**
+     * Builder.
+     */
+    public static class Builder {
+        private final MpSogsMpsuParams params;
+        private SecurePeelType securePeelType;
+        private int maxHashSeedRetries;
+        private int maxBatchCells;
+
+        public Builder(MpSogsMpsuParams params) {
+            this.params = Preconditions.checkNotNull(params);
+            securePeelType = SecurePeelType.DUMMY_CLEAR;
+            maxHashSeedRetries = 4;
+            maxBatchCells = DEFAULT_MAX_BATCH_CELLS;
+        }
+
+        public Builder setSecurePeelType(SecurePeelType securePeelType) {
+            this.securePeelType = Preconditions.checkNotNull(securePeelType);
+            return this;
+        }
+
+        public Builder setMaxHashSeedRetries(int maxHashSeedRetries) {
+            this.maxHashSeedRetries = maxHashSeedRetries;
+            return this;
+        }
+
+        public Builder setMaxBatchCells(int maxBatchCells) {
+            this.maxBatchCells = maxBatchCells;
+            return this;
+        }
+
+        public MpSogsMpsuConfig build() {
+            return new MpSogsMpsuConfig(this);
+        }
+    }
+}

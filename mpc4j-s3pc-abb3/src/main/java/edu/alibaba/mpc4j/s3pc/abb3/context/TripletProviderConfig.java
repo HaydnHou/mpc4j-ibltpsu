@@ -54,7 +54,7 @@ public class TripletProviderConfig extends AbstractMultiPartyPtoConfig {
         /**
          * z2 mtp config
          */
-        private final S3pcCrProviderConfig crProviderConfig;
+        private S3pcCrProviderConfig crProviderConfig;
         /**
          * z2 mtp config
          */
@@ -85,6 +85,11 @@ public class TripletProviderConfig extends AbstractMultiPartyPtoConfig {
         public Builder setRpZl64MtpConfig(RpLongMtpConfig rpLongMtpConfig) {
             assert isMalicious;
             this.rpLongMtpConfig = rpLongMtpConfig;
+            return this;
+        }
+
+        public Builder setCrProviderConfig(S3pcCrProviderConfig crProviderConfig) {
+            this.crProviderConfig = crProviderConfig;
             return this;
         }
 
