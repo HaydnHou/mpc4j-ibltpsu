@@ -37,7 +37,7 @@ import java.util.stream.IntStream;
  * Netty entry for three-party all-output MP-SOGS MPSU.
  *
  * <p>Run one process per party with the same config file and own name {@code first}, {@code second}, or
- * {@code third}. This class intentionally stays outside {@code PsoMain}, whose current shape is two-party.</p>
+ * {@code third}. This class can be launched directly or through {@code PsoMain} with {@code pto_type=MP_SOGS_MPSU}.</p>
  *
  * @author donghai hou
  * @date 2026/06/20

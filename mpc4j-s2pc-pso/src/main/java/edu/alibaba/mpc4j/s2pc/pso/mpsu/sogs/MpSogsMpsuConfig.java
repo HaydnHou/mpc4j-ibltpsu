@@ -10,6 +10,10 @@ import com.google.common.base.Preconditions;
  */
 public class MpSogsMpsuConfig {
     /**
+     * Party number supported by the current concrete ABB3 backend.
+     */
+    public static final int ABB3_PARTY_NUM = 3;
+    /**
      * Default maximum cells per secure-uPeel batch.
      */
     public static final int DEFAULT_MAX_BATCH_CELLS = 1 << 20;
@@ -45,6 +49,10 @@ public class MpSogsMpsuConfig {
         params = Preconditions.checkNotNull(builder.params);
         securePeelType = Preconditions.checkNotNull(builder.securePeelType);
         ptoType = MpSogsMpsuFactory.MpSogsMpsuType.MP_SOGS;
+        if (securePeelType == SecurePeelType.ABB3) {
+            Preconditions.checkArgument(params.getPartyNum() == ABB3_PARTY_NUM,
+                "ABB3 MP-SOGS backend requires exactly %s parties: %s", ABB3_PARTY_NUM, params.getPartyNum());
+        }
         Preconditions.checkArgument(builder.maxHashSeedRetries > 0,
             "maxHashSeedRetries must be positive: %s", builder.maxHashSeedRetries);
         maxHashSeedRetries = builder.maxHashSeedRetries;

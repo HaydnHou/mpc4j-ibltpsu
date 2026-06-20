@@ -30,6 +30,18 @@ public class MpSogsMpsuFactoryTest {
         Assert.assertEquals(4, config.getMaxHashSeedRetries());
     }
 
+    @Test(expected = IllegalArgumentException.class)
+    public void testSemiHonestRejectsFourPartyUntilGenericBackendExists() {
+        MpSogsMpsuFactory.createDefaultConfig(SecurityModel.SEMI_HONEST, 4, 256);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testAbb3ConfigRejectsFourPartyUntilGenericBackendExists() {
+        new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(4, 256).build())
+            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.ABB3)
+            .build();
+    }
+
     @Test
     public void testLocalDummyRunner() {
         List<Set<Long>> inputs = generateInputs(3, 64, 0.5);

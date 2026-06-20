@@ -45,6 +45,34 @@ public class ClearMpSogsMpsuTest {
     }
 
     @Test
+    public void testClearFourPartyAllOutput() {
+        List<Set<Long>> inputs = generateInputs(4, 96, 0.5);
+        MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(4, union(inputs).size())
+            .setAlpha(1.4)
+            .setHashNum(3)
+            .build();
+        MpSogsTranscript transcript = ClearMpSogsMpsu.run(inputs, params);
+        Assert.assertTrue(transcript.getFailureReason(), transcript.isSuccess());
+        Assert.assertEquals(union(inputs), transcript.getUnionOutput());
+        for (int partyIndex = 0; partyIndex < inputs.size(); partyIndex++) {
+            MpSogsMpsuParticipant participant = new MpSogsMpsuParticipant(partyIndex);
+            Assert.assertEquals(transcript.getUnionOutput(), participant.clearMpsu(inputs, params));
+        }
+    }
+
+    @Test
+    public void testClearFivePartyAllOutputHighOverlap() {
+        List<Set<Long>> inputs = generateInputs(5, 96, 0.8);
+        MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(5, union(inputs).size())
+            .setAlpha(1.4)
+            .setHashNum(3)
+            .build();
+        MpSogsTranscript transcript = ClearMpSogsMpsu.run(inputs, params);
+        Assert.assertTrue(transcript.getFailureReason(), transcript.isSuccess());
+        Assert.assertEquals(union(inputs), transcript.getUnionOutput());
+    }
+
+    @Test
     public void testEquivalenceChecker() {
         List<Set<Long>> inputs = generateInputs(3, 128, 0.5);
         MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(3, union(inputs).size())

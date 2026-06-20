@@ -54,6 +54,10 @@ public class MpSogsMpsuFactory implements PtoFactory {
      */
     public static Abb3MpSogsMpsuPartyRunner createAbb3PartyRunner(TripletZ2cParty z2cParty,
                                                                   MpSogsMpsuConfig config) {
+        if (config.getParams().getPartyNum() != MpSogsMpsuConfig.ABB3_PARTY_NUM) {
+            throw new IllegalArgumentException("ABB3 MP-SOGS backend requires exactly "
+                + MpSogsMpsuConfig.ABB3_PARTY_NUM + " parties: " + config.getParams().getPartyNum());
+        }
         switch (config.getPtoType()) {
             case MP_SOGS:
                 return new Abb3MpSogsMpsuPartyRunner(z2cParty, config);
@@ -74,6 +78,10 @@ public class MpSogsMpsuFactory implements PtoFactory {
     public static MpSogsMpsuConfig createDefaultConfig(SecurityModel securityModel, int partyNum, int tauMax) {
         switch (securityModel) {
             case SEMI_HONEST:
+                if (partyNum != MpSogsMpsuConfig.ABB3_PARTY_NUM) {
+                    throw new IllegalArgumentException("SEMI_HONEST MP-SOGS currently supports only "
+                        + MpSogsMpsuConfig.ABB3_PARTY_NUM + " parties with the ABB3 backend: " + partyNum);
+                }
                 return new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(partyNum, tauMax).build())
                     .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.ABB3)
                     .build();
