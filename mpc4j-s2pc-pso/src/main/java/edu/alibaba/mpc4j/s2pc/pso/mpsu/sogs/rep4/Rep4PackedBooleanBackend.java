@@ -86,6 +86,11 @@ public class Rep4PackedBooleanBackend implements PackedBooleanBackend {
     }
 
     @Override
+    public int batchSize() {
+        return batchSize;
+    }
+
+    @Override
     public PackedBooleanShare shareOwn(long[] bits) {
         return shareOwnAndReceiveAll(bits)[ownPartyId];
     }
@@ -199,6 +204,28 @@ public class Rep4PackedBooleanBackend implements PackedBooleanBackend {
         long compactLastMask = lastBits == 0 ? -1L : (1L << lastBits) - 1L;
         result[compactBlockNum - 1] &= compactLastMask;
         return result;
+    }
+
+    @Override
+    public PackedBooleanShare compact(PackedBooleanShare x, int[] selectedIndexes) {
+        int compactBlockNum = (selectedIndexes.length + Long.SIZE - 1) / Long.SIZE;
+        if (compactBlockNum == 0) {
+            throw new IllegalArgumentException("selectedIndexes must be non-empty");
+        }
+        Rep4PackedBooleanShare share = rep4(x);
+        long[][] compactComponents = new long[PARTY_NUM][];
+        for (int componentIndex = 0; componentIndex < PARTY_NUM; componentIndex++) {
+            long[] component = share.component(componentIndex);
+            if (component != null) {
+                compactComponents[componentIndex] = select(component, selectedIndexes, compactBlockNum);
+            }
+        }
+        return new Rep4PackedBooleanShare(compactComponents, compactBlockNum);
+    }
+
+    @Override
+    public PackedBooleanBackend derive(int compactBatchSize) {
+        return new Rep4PackedBooleanBackend(rpc, compactBatchSize, taskId + 0x5E1EC7EDL + extraInfo++);
     }
 
     private Rep4PackedBooleanShare[] shareOwnAndReceiveAll(long[] ownBits, int stepId) {

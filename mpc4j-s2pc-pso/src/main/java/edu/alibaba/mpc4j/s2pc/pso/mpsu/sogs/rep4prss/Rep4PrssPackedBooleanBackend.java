@@ -39,6 +39,10 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
      * Protocol step for AND resharing.
      */
     private static final int STEP_AND_RESHARE = 33;
+    /**
+     * Domain bit for compact child backends. This keeps PRSS extraInfo disjoint from the parent backend.
+     */
+    private static final long COMPACT_EXTRA_INFO_DOMAIN = 1L << 60;
 
     private final Rpc rpc;
     private final Party[] parties;
@@ -48,10 +52,15 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
     private final long lastBlockMask;
     private final long taskId;
     private final Rep4PrssSeedManager seedManager;
+    private final int[] networkRoundCounter;
     private long extraInfo;
-    private int networkRoundCount;
 
     public Rep4PrssPackedBooleanBackend(Rpc rpc, int batchSize, long taskId) {
+        this(rpc, batchSize, taskId, null, new int[]{0}, 0L);
+    }
+
+    private Rep4PrssPackedBooleanBackend(Rpc rpc, int batchSize, long taskId, Rep4PrssSeedManager seedManager,
+                                         int[] networkRoundCounter, long extraInfo) {
         if (batchSize <= 0) {
             throw new IllegalArgumentException("batchSize must be positive: " + batchSize);
         }
@@ -69,20 +78,27 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
         int lastBits = batchSize & (Long.SIZE - 1);
         lastBlockMask = lastBits == 0 ? -1L : (1L << lastBits) - 1L;
         this.taskId = taskId;
-        seedManager = new Rep4PrssSeedManager(rpc, taskId);
+        this.seedManager = seedManager == null ? new Rep4PrssSeedManager(rpc, taskId) : seedManager;
+        this.networkRoundCounter = networkRoundCounter;
+        this.extraInfo = extraInfo;
     }
 
     public int getNetworkRoundCount() {
-        return networkRoundCount;
+        return networkRoundCounter[0];
     }
 
     public void resetNetworkRoundCount() {
-        networkRoundCount = 0;
+        networkRoundCounter[0] = 0;
     }
 
     @Override
     public int blockNum() {
         return blockNum;
+    }
+
+    @Override
+    public int batchSize() {
+        return batchSize;
     }
 
     @Override
@@ -155,11 +171,55 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
             }
         }
         Rep4PrssPackedBooleanShare[] resharedProducts = shareOwnAndReceiveAll(localProduct, STEP_AND_RESHARE);
-        PackedBooleanShare result = zero();
-        for (Rep4PrssPackedBooleanShare productShare : resharedProducts) {
-            result = xor(result, productShare);
+        return xorShares(resharedProducts);
+    }
+
+    @Override
+    public PackedBooleanShare[] andMany(PackedBooleanShare[] xs, PackedBooleanShare[] ys) {
+        if (xs.length != ys.length) {
+            throw new IllegalArgumentException("xs and ys length mismatch: " + xs.length + " != " + ys.length);
         }
-        return result;
+        int num = xs.length;
+        PackedBooleanShare[] results = new PackedBooleanShare[num];
+        if (num == 0) {
+            return results;
+        }
+        long[][] localProducts = new long[num][blockNum];
+        for (int itemIndex = 0; itemIndex < num; itemIndex++) {
+            Rep4PrssPackedBooleanShare left = rep4(xs[itemIndex]);
+            Rep4PrssPackedBooleanShare right = rep4(ys[itemIndex]);
+            for (int leftComponent = 0; leftComponent < PARTY_NUM; leftComponent++) {
+                for (int rightComponent = 0; rightComponent < PARTY_NUM; rightComponent++) {
+                    if (andComputingParty(leftComponent, rightComponent) == ownPartyId) {
+                        xorInPlace(localProducts[itemIndex], andBlocks(
+                            left.component(leftComponent), right.component(rightComponent)
+                        ));
+                    }
+                }
+            }
+        }
+        Rep4PrssPackedBooleanShare[][] resharedProducts = shareOwnAndReceiveAllMany(localProducts, STEP_AND_RESHARE);
+        for (int itemIndex = 0; itemIndex < num; itemIndex++) {
+            results[itemIndex] = xorShares(resharedProducts[itemIndex]);
+        }
+        return results;
+    }
+
+    private Rep4PrssPackedBooleanShare xorShares(Rep4PrssPackedBooleanShare[] shares) {
+        long[][] components = new long[PARTY_NUM][];
+        for (int componentIndex = 0; componentIndex < PARTY_NUM; componentIndex++) {
+            if (componentIndex != ownPartyId) {
+                components[componentIndex] = new long[blockNum];
+            }
+        }
+        for (Rep4PrssPackedBooleanShare share : shares) {
+            for (int componentIndex = 0; componentIndex < PARTY_NUM; componentIndex++) {
+                if (componentIndex != ownPartyId) {
+                    xorInPlace(components[componentIndex], share.component(componentIndex));
+                }
+            }
+        }
+        return new Rep4PrssPackedBooleanShare(components, blockNum);
     }
 
     @Override
@@ -190,10 +250,35 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
         );
     }
 
+    @Override
+    public PackedBooleanShare compact(PackedBooleanShare x, int[] selectedIndexes) {
+        int compactBlockNum = (selectedIndexes.length + Long.SIZE - 1) / Long.SIZE;
+        if (compactBlockNum == 0) {
+            throw new IllegalArgumentException("selectedIndexes must be non-empty");
+        }
+        Rep4PrssPackedBooleanShare share = rep4(x);
+        long[][] compactComponents = new long[PARTY_NUM][];
+        for (int componentIndex = 0; componentIndex < PARTY_NUM; componentIndex++) {
+            long[] component = share.component(componentIndex);
+            if (component != null) {
+                compactComponents[componentIndex] = select(component, selectedIndexes, compactBlockNum);
+            }
+        }
+        return new Rep4PrssPackedBooleanShare(compactComponents, compactBlockNum);
+    }
+
+    @Override
+    public PackedBooleanBackend derive(int compactBatchSize) {
+        long compactBaseInfo = COMPACT_EXTRA_INFO_DOMAIN | (extraInfo++ << 20);
+        return new Rep4PrssPackedBooleanBackend(
+            rpc, compactBatchSize, taskId, seedManager, networkRoundCounter, compactBaseInfo
+        );
+    }
+
     private Rep4PrssPackedBooleanShare[] shareOwnAndReceiveAll(long[] ownBits, int stepId) {
         checkBlockNum(ownBits);
         long info = extraInfo++;
-        long[] ownDelta = correctionDelta(maskValidBits(ownBits), ownPartyId, stepId, info);
+        long[] ownDelta = correctionDelta(maskValidBits(ownBits), ownPartyId, stepId, info, info);
         int ownCorrectionComponent = correctionComponent(ownPartyId, info);
         sendCorrectionDelta(ownDelta, stepId, info, ownCorrectionComponent);
         long[][] correctionDeltas = new long[PARTY_NUM][];
@@ -206,17 +291,60 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
         }
         Rep4PrssPackedBooleanShare[] sharesByDealer = new Rep4PrssPackedBooleanShare[PARTY_NUM];
         for (int dealerId = 0; dealerId < PARTY_NUM; dealerId++) {
-            sharesByDealer[dealerId] = buildShareForDealer(dealerId, stepId, info, correctionDeltas[dealerId]);
+            sharesByDealer[dealerId] = buildShareForDealer(
+                dealerId, stepId, info, info, correctionDeltas[dealerId]
+            );
         }
-        networkRoundCount++;
+        networkRoundCounter[0]++;
         return sharesByDealer;
     }
 
-    private long[] correctionDelta(long[] bits, int dealerId, int stepId, long info) {
+    private Rep4PrssPackedBooleanShare[][] shareOwnAndReceiveAllMany(long[][] ownBitsArray, int stepId) {
+        int num = ownBitsArray.length;
+        if (num == 0) {
+            return new Rep4PrssPackedBooleanShare[0][];
+        }
+        for (long[] ownBits : ownBitsArray) {
+            checkBlockNum(ownBits);
+        }
+        long info = extraInfo++;
+        long[][] ownDeltas = new long[num][];
+        for (int itemIndex = 0; itemIndex < num; itemIndex++) {
+            ownDeltas[itemIndex] = correctionDelta(
+                maskValidBits(ownBitsArray[itemIndex]), ownPartyId, stepId, info, itemInfo(info, itemIndex)
+            );
+        }
+        int ownCorrectionComponent = correctionComponent(ownPartyId, info);
+        sendCorrectionDeltas(ownDeltas, stepId, info, ownCorrectionComponent);
+        long[][][] correctionDeltas = new long[PARTY_NUM][][];
+        correctionDeltas[ownPartyId] = ownDeltas;
+        for (Party party : parties) {
+            int dealerId = party.getPartyId();
+            if (dealerId != ownPartyId && holdsCorrectionComponent(dealerId, info)) {
+                correctionDeltas[dealerId] = receiveCorrectionDeltas(dealerId, stepId, info, num);
+            }
+        }
+        Rep4PrssPackedBooleanShare[][] sharesByItemDealer = new Rep4PrssPackedBooleanShare[num][PARTY_NUM];
+        for (int itemIndex = 0; itemIndex < num; itemIndex++) {
+            long prssInfo = itemInfo(info, itemIndex);
+            for (int dealerId = 0; dealerId < PARTY_NUM; dealerId++) {
+                long[] correctionDelta = correctionDeltas[dealerId] == null
+                    ? null
+                    : correctionDeltas[dealerId][itemIndex];
+                sharesByItemDealer[itemIndex][dealerId] = buildShareForDealer(
+                    dealerId, stepId, prssInfo, info, correctionDelta
+                );
+            }
+        }
+        networkRoundCounter[0]++;
+        return sharesByItemDealer;
+    }
+
+    private long[] correctionDelta(long[] bits, int dealerId, int stepId, long correctionInfo, long prssInfo) {
         long[] delta = Arrays.copyOf(bits, blockNum);
         for (int componentIndex = 0; componentIndex < PARTY_NUM; componentIndex++) {
             if (componentIndex != dealerId) {
-                xorInPlace(delta, prssComponent(componentIndex, stepId, info, dealerId));
+                xorInPlace(delta, prssComponent(componentIndex, stepId, prssInfo, dealerId));
             }
         }
         delta[blockNum - 1] &= lastBlockMask;
@@ -236,6 +364,19 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
         }
     }
 
+    private void sendCorrectionDeltas(long[][] deltas, int stepId, long info, int correctionComponent) {
+        for (Party party : parties) {
+            int partyId = party.getPartyId();
+            if (partyId != ownPartyId && partyId != correctionComponent) {
+                DataPacketHeader header = new DataPacketHeader(
+                    taskId, MpSogsMpsuPtoDesc.getInstance().getPtoId(), stepId, info,
+                    ownPartyId, partyId
+                );
+                rpc.send(DataPacket.fromByteArrayList(header, List.of(encodeManyBlocks(deltas))));
+            }
+        }
+    }
+
     private long[] receiveCorrectionDelta(int dealerId, int stepId, long info) {
         DataPacketHeader header = new DataPacketHeader(
             taskId, MpSogsMpsuPtoDesc.getInstance().getPtoId(), stepId, info,
@@ -248,13 +389,25 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
         return decodeBlocks(payload.get(0), blockNum);
     }
 
+    private long[][] receiveCorrectionDeltas(int dealerId, int stepId, long info, int num) {
+        DataPacketHeader header = new DataPacketHeader(
+            taskId, MpSogsMpsuPtoDesc.getInstance().getPtoId(), stepId, info,
+            dealerId, ownPartyId
+        );
+        List<byte[]> payload = rpc.receive(header).getPayload();
+        if (payload.size() != 1) {
+            throw new IllegalStateException("invalid REP4 PRSS batched correction payload size: " + payload.size());
+        }
+        return decodeManyBlocks(payload.get(0), num);
+    }
+
     private boolean holdsCorrectionComponent(int dealerId, long info) {
         int correctionComponent = correctionComponent(dealerId, info);
         return ownPartyId != dealerId && ownPartyId != correctionComponent;
     }
 
-    private Rep4PrssPackedBooleanShare buildShareForDealer(int dealerId, int stepId, long info,
-                                                          long[] correctionDelta) {
+    private Rep4PrssPackedBooleanShare buildShareForDealer(int dealerId, int stepId, long prssInfo,
+                                                           long correctionInfo, long[] correctionDelta) {
         long[][] components = new long[PARTY_NUM][];
         for (int componentIndex = 0; componentIndex < PARTY_NUM; componentIndex++) {
             if (componentIndex == ownPartyId) {
@@ -262,10 +415,10 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
             } else if (componentIndex == dealerId) {
                 components[componentIndex] = new long[blockNum];
             } else {
-                components[componentIndex] = prssComponent(componentIndex, stepId, info, dealerId);
+                components[componentIndex] = prssComponent(componentIndex, stepId, prssInfo, dealerId);
             }
         }
-        int correctionComponent = correctionComponent(dealerId, info);
+        int correctionComponent = correctionComponent(dealerId, correctionInfo);
         if (correctionComponent != ownPartyId) {
             if (correctionDelta == null) {
                 throw new IllegalStateException("missing REP4 PRSS correction delta from dealer " + dealerId);
@@ -274,6 +427,10 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
             components[correctionComponent][blockNum - 1] &= lastBlockMask;
         }
         return new Rep4PrssPackedBooleanShare(components, blockNum);
+    }
+
+    private long itemInfo(long info, int itemIndex) {
+        return info ^ (((long) itemIndex + 1) << 32);
     }
 
     private long[][] openCompact(Rep4PrssPackedBooleanShare share, int openBlockNum) {
@@ -301,7 +458,7 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
             }
             components[ownPartyId] = decodeBlocks(payload.get(0), openBlockNum);
         }
-        networkRoundCount++;
+        networkRoundCounter[0]++;
         return components;
     }
 
@@ -348,6 +505,20 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
         return buffer.array();
     }
 
+    private byte[] encodeManyBlocks(long[][] blocksArray) {
+        ByteBuffer buffer = ByteBuffer.allocate(blocksArray.length * blockNum * Long.BYTES);
+        for (long[] blocks : blocksArray) {
+            if (blocks.length != blockNum) {
+                throw new IllegalArgumentException("invalid REP4 PRSS block length: " + blocks.length
+                    + ", expected " + blockNum);
+            }
+            for (long block : blocks) {
+                buffer.putLong(block);
+            }
+        }
+        return buffer.array();
+    }
+
     private long[] decodeBlocks(byte[] encoded, int componentBlockNum) {
         if (encoded.length != componentBlockNum * Long.BYTES) {
             throw new IllegalArgumentException("invalid REP4 PRSS block payload length: " + encoded.length);
@@ -358,6 +529,20 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
             blocks[blockIndex] = buffer.getLong();
         }
         return blocks;
+    }
+
+    private long[][] decodeManyBlocks(byte[] encoded, int num) {
+        if (encoded.length != num * blockNum * Long.BYTES) {
+            throw new IllegalArgumentException("invalid REP4 PRSS batched payload length: " + encoded.length);
+        }
+        ByteBuffer buffer = ByteBuffer.wrap(encoded);
+        long[][] blocksArray = new long[num][blockNum];
+        for (int itemIndex = 0; itemIndex < num; itemIndex++) {
+            for (int blockIndex = 0; blockIndex < blockNum; blockIndex++) {
+                blocksArray[itemIndex][blockIndex] = buffer.getLong();
+            }
+        }
+        return blocksArray;
     }
 
     private int andComputingParty(int leftComponent, int rightComponent) {

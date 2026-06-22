@@ -42,6 +42,10 @@ public class MpSogsMpsuConfig {
          */
         REP4_PRSS_PACKED,
         /**
+         * 4-party PRSS packed backend with opened-first selected-lane candidate recovery.
+         */
+        REP4_PRSS_OPENED_FIRST,
+        /**
          * Planned 5-party packed replicated Z2 backend.
          */
         REP5_PACKED,
@@ -77,7 +81,8 @@ public class MpSogsMpsuConfig {
             Preconditions.checkArgument(params.getPartyNum() == 4,
                 "REP4 packed MP-SOGS backend requires exactly 4 parties: %s", params.getPartyNum());
         }
-        if (securePeelType == SecurePeelType.REP4_PRSS_PACKED) {
+        if (securePeelType == SecurePeelType.REP4_PRSS_PACKED
+            || securePeelType == SecurePeelType.REP4_PRSS_OPENED_FIRST) {
             Preconditions.checkArgument(params.getPartyNum() == 4,
                 "REP4 PRSS packed MP-SOGS backend requires exactly 4 parties: %s", params.getPartyNum());
         }

@@ -22,6 +22,16 @@ import java.util.stream.IntStream;
 public class Rep4PrssMpSogsMpsuPartyRunnerTest {
     @Test
     public void testFourPartyAllOutput() throws InterruptedException {
+        testFourPartyAllOutput(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED);
+    }
+
+    @Test
+    public void testFourPartyOpenedFirstAllOutput() throws InterruptedException {
+        testFourPartyAllOutput(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST);
+    }
+
+    private void testFourPartyAllOutput(MpSogsMpsuConfig.SecurePeelType securePeelType)
+        throws InterruptedException {
         List<Set<Long>> inputs = generateInputs(4, 8, 0.5);
         Set<Long> expectedUnion = union(inputs);
         MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(4, expectedUnion.size())
@@ -29,7 +39,7 @@ public class Rep4PrssMpSogsMpsuPartyRunnerTest {
             .setHashNum(3)
             .build();
         MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(params)
-            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED)
+            .setSecurePeelType(securePeelType)
             .setMaxHashSeedRetries(8)
             .build();
         MemoryRpcManager rpcManager = new MemoryRpcManager(4);

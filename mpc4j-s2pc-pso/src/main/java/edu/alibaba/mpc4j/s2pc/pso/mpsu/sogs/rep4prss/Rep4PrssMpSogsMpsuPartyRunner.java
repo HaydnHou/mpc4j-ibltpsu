@@ -39,8 +39,9 @@ public class Rep4PrssMpSogsMpsuPartyRunner {
         this.rpc = rpc;
         this.config = config;
         this.taskId = taskId;
-        if (config.getSecurePeelType() != MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED) {
-            throw new IllegalArgumentException("REP4 PRSS runner requires REP4_PRSS_PACKED secure peel type");
+        if (config.getSecurePeelType() != MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED
+            && config.getSecurePeelType() != MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST) {
+            throw new IllegalArgumentException("REP4 PRSS runner requires REP4_PRSS secure peel type");
         }
         if (config.getParams().getPartyNum() != Rep4PrssPackedBooleanBackend.PARTY_NUM) {
             throw new IllegalArgumentException("REP4 PRSS runner requires exactly 4 parties");
@@ -82,7 +83,8 @@ public class Rep4PrssMpSogsMpsuPartyRunner {
         MpSogsSketch localSketch = MpSogsSketch.encode(localInput, params);
         int backendBatchSize = Math.min(config.getMaxBatchCells(), params.getCellNum());
         SecureMpSogsUnionPeel unionPeel = new Rep4PrssSecureMpSogsUnionPeel(
-            rpc, localSketch, params, taskId + retryIndex, backendBatchSize
+            rpc, localSketch, params, taskId + retryIndex, backendBatchSize,
+            config.getSecurePeelType() == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST
         );
         Set<Long> unionOutput = new LinkedHashSet<>();
         List<MpSogsRoundStats> stats = new ArrayList<>();

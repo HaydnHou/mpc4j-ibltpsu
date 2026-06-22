@@ -41,6 +41,11 @@ public class ClearPackedBooleanBackend implements PackedBooleanBackend {
     }
 
     @Override
+    public int batchSize() {
+        return batchSize;
+    }
+
+    @Override
     public PackedBooleanShare shareOwn(long[] bits) {
         checkBlockNum(bits);
         return new PackedBooleanShare(maskValidBits(bits));
@@ -101,6 +106,22 @@ public class ClearPackedBooleanBackend implements PackedBooleanBackend {
     public long[] openSelected(PackedBooleanShare x, int[] selectedIndexes) {
         long[] blocks = x.getBlocks();
         checkBlockNum(blocks);
+        return select(blocks, selectedIndexes);
+    }
+
+    @Override
+    public PackedBooleanShare compact(PackedBooleanShare x, int[] selectedIndexes) {
+        long[] blocks = x.getBlocks();
+        checkBlockNum(blocks);
+        return new PackedBooleanShare(select(blocks, selectedIndexes));
+    }
+
+    @Override
+    public PackedBooleanBackend derive(int compactBatchSize) {
+        return new ClearPackedBooleanBackend(compactBatchSize);
+    }
+
+    private long[] select(long[] blocks, int[] selectedIndexes) {
         int compactBlockNum = (selectedIndexes.length + Long.SIZE - 1) / Long.SIZE;
         long[] selected = new long[compactBlockNum];
         for (int selectedIndex = 0; selectedIndex < selectedIndexes.length; selectedIndex++) {

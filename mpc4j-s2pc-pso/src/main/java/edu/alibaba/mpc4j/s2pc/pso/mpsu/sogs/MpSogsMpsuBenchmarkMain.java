@@ -129,7 +129,8 @@ public class MpSogsMpsuBenchmarkMain {
                 ))
                 .toArray(BenchmarkThread[]::new);
         }
-        if (securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED) {
+        if (securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED
+            || securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST) {
             return IntStream.range(0, config.partyNum)
                 .mapToObj(partyIndex -> new Rep4PrssBenchmarkThread(
                     rpcs[partyIndex], inputs.get(partyIndex), expectedUnion, ptoConfig, config.taskId + trialIndex

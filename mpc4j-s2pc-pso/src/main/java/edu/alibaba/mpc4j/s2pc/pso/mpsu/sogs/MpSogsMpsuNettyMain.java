@@ -323,7 +323,8 @@ public class MpSogsMpsuNettyMain {
             transcript = new Abb3MpSogsMpsuPartyRunner(z2cParty, config).runAfterInit(localInput);
         } else if (securePeelType == MpSogsMpsuConfig.SecurePeelType.SHAMIR) {
             transcript = new ShamirMpSogsMpsuPartyRunner(ownRpc, config, taskId).run(localInput);
-        } else if (securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED) {
+        } else if (securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED
+            || securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST) {
             transcript = new Rep4PrssMpSogsMpsuPartyRunner(ownRpc, config, taskId).run(localInput);
         } else {
             throw new UnsupportedOperationException("unsupported secure peel type: " + securePeelType);

@@ -9,6 +9,7 @@ import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsPeelResult;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsSketch;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.SecureMpSogsUnionPeel;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PackedBooleanShare;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PackedOpenedFirstMpSogsUnionPeel;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PackedMpSogsCellBatch;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PackedSecureMpSogsUnionPeel;
 
@@ -30,9 +31,15 @@ public class Rep4PrssSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
     private final MpSogsSketch localSketch;
     private final MpSogsMpsuParams params;
     private final int maxBatchSize;
+    private final boolean openedFirst;
 
     public Rep4PrssSecureMpSogsUnionPeel(Rpc rpc, MpSogsSketch localSketch, MpSogsMpsuParams params, long taskId,
                                          int batchSize) {
+        this(rpc, localSketch, params, taskId, batchSize, false);
+    }
+
+    public Rep4PrssSecureMpSogsUnionPeel(Rpc rpc, MpSogsSketch localSketch, MpSogsMpsuParams params, long taskId,
+                                         int batchSize, boolean openedFirst) {
         if (params.getPartyNum() != Rep4PrssPackedBooleanBackend.PARTY_NUM) {
             throw new IllegalArgumentException("REP4 PRSS secure-uPeel requires exactly 4 parties: "
                 + params.getPartyNum());
@@ -41,6 +48,7 @@ public class Rep4PrssSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         this.localSketch = localSketch;
         this.params = params;
         maxBatchSize = batchSize;
+        this.openedFirst = openedFirst;
         if (localSketch.getCellNum() != params.getCellNum()) {
             throw new IllegalArgumentException("local sketch parameters do not match MP-SOGS parameters");
         }
@@ -67,7 +75,9 @@ public class Rep4PrssSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
             }
         }
         PackedMpSogsCellBatch batch = PackedMpSogsCellBatch.fromShares(input.size(), singleton, heavy, valueBits);
-        List<MpSogsPeelResult> results = new PackedSecureMpSogsUnionPeel(backend).peel(batch);
+        List<MpSogsPeelResult> results = openedFirst
+            ? new PackedOpenedFirstMpSogsUnionPeel(backend).peel(batch)
+            : new PackedSecureMpSogsUnionPeel(backend).peel(batch);
         return new BatchMpSogsPeelOutput(results, 0L, 0L, backend.getNetworkRoundCount());
     }
 

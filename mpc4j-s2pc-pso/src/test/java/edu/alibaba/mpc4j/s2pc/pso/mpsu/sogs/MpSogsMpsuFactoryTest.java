@@ -52,6 +52,14 @@ public class MpSogsMpsuFactoryTest {
         Assert.assertEquals(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED, config.getSecurePeelType());
     }
 
+    @Test
+    public void testRep4PrssOpenedFirstConfigAcceptsFourParty() {
+        MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(4, 256).build())
+            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST)
+            .build();
+        Assert.assertEquals(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST, config.getSecurePeelType());
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void testRep4PackedConfigRejectsFiveParty() {
         new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(5, 256).build())
@@ -63,6 +71,13 @@ public class MpSogsMpsuFactoryTest {
     public void testRep4PrssPackedConfigRejectsFiveParty() {
         new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(5, 256).build())
             .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED)
+            .build();
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testRep4PrssOpenedFirstConfigRejectsFiveParty() {
+        new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(5, 256).build())
+            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST)
             .build();
     }
 
