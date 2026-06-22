@@ -50,6 +50,10 @@ public class MpSogsMpsuConfig {
          */
         REP5_PACKED,
         /**
+         * 5-party T1 PRSS packed backend with opened-first selected-lane candidate recovery.
+         */
+        REP5_PRSS_OPENED_FIRST,
+        /**
          * Placeholder for a future generic n-party semi-honest MPC implementation.
          */
         GENERIC_MPC,
@@ -89,6 +93,10 @@ public class MpSogsMpsuConfig {
         if (securePeelType == SecurePeelType.REP5_PACKED) {
             Preconditions.checkArgument(params.getPartyNum() == 5,
                 "REP5 packed MP-SOGS backend requires exactly 5 parties: %s", params.getPartyNum());
+        }
+        if (securePeelType == SecurePeelType.REP5_PRSS_OPENED_FIRST) {
+            Preconditions.checkArgument(params.getPartyNum() == 5,
+                "REP5 PRSS packed MP-SOGS backend requires exactly 5 parties: %s", params.getPartyNum());
         }
         Preconditions.checkArgument(builder.maxHashSeedRetries > 0,
             "maxHashSeedRetries must be positive: %s", builder.maxHashSeedRetries);

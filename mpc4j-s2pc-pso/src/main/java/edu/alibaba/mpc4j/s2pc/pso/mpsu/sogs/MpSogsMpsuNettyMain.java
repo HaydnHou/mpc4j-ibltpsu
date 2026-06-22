@@ -6,6 +6,7 @@ import edu.alibaba.mpc4j.common.rpc.main.MainPtoConfigUtils;
 import edu.alibaba.mpc4j.common.tool.utils.PropertiesUtils;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.abb3.Abb3MpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4prss.Rep4PrssMpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep5prss.Rep5PrssMpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.shamir.ShamirMpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s3pc.abb3.basic.core.z2.TripletZ2cParty;
 import edu.alibaba.mpc4j.s3pc.abb3.basic.core.z2.replicate.Aby3Z2cConfig;
@@ -326,6 +327,8 @@ public class MpSogsMpsuNettyMain {
         } else if (securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED
             || securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST) {
             transcript = new Rep4PrssMpSogsMpsuPartyRunner(ownRpc, config, taskId).run(localInput);
+        } else if (securePeelType == MpSogsMpsuConfig.SecurePeelType.REP5_PRSS_OPENED_FIRST) {
+            transcript = new Rep5PrssMpSogsMpsuPartyRunner(ownRpc, config, taskId).run(localInput);
         } else {
             throw new UnsupportedOperationException("unsupported secure peel type: " + securePeelType);
         }

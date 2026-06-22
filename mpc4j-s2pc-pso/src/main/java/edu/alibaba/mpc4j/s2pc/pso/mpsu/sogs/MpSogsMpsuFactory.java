@@ -5,6 +5,7 @@ import edu.alibaba.mpc4j.common.rpc.pto.PtoFactory;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.abb3.Abb3MpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4.Rep4MpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4prss.Rep4PrssMpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep5prss.Rep5PrssMpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.shamir.ShamirMpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s3pc.abb3.basic.core.z2.TripletZ2cParty;
 import edu.alibaba.mpc4j.common.rpc.Rpc;
@@ -149,6 +150,29 @@ public class MpSogsMpsuFactory implements PtoFactory {
                 + config.getParams().getPartyNum());
         }
         throw new UnsupportedOperationException("REP5 packed MP-SOGS backend is not implemented yet");
+    }
+
+    /**
+     * Creates a 5-party T1 PRSS packed replicated Z2 runner.
+     *
+     * @param rpc RPC.
+     * @param config config.
+     * @param taskId task id.
+     * @return REP5 PRSS packed party-local runner.
+     */
+    public static Rep5PrssMpSogsMpsuPartyRunner createRep5PrssPartyRunner(Rpc rpc, MpSogsMpsuConfig config,
+                                                                          long taskId) {
+        if (config.getParams().getPartyNum() != 5) {
+            throw new IllegalArgumentException("REP5 PRSS packed MP-SOGS backend requires exactly 5 parties: "
+                + config.getParams().getPartyNum());
+        }
+        switch (config.getPtoType()) {
+            case MP_SOGS:
+                return new Rep5PrssMpSogsMpsuPartyRunner(rpc, config, taskId);
+            default:
+                throw new IllegalArgumentException("Invalid " + MpSogsMpsuType.class.getSimpleName() + ": "
+                    + config.getPtoType());
+        }
     }
 
     /**

@@ -5,6 +5,7 @@ import edu.alibaba.mpc4j.common.rpc.impl.memory.MemoryRpcManager;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.abb3.Abb3MpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4.Rep4MpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4prss.Rep4PrssMpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep5prss.Rep5PrssMpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.shamir.ShamirMpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s3pc.abb3.basic.core.z2.TripletZ2cParty;
 import edu.alibaba.mpc4j.s3pc.abb3.basic.core.z2.replicate.Aby3Z2cConfig;
@@ -133,6 +134,13 @@ public class MpSogsMpsuBenchmarkMain {
             || securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST) {
             return IntStream.range(0, config.partyNum)
                 .mapToObj(partyIndex -> new Rep4PrssBenchmarkThread(
+                    rpcs[partyIndex], inputs.get(partyIndex), expectedUnion, ptoConfig, config.taskId + trialIndex
+                ))
+                .toArray(BenchmarkThread[]::new);
+        }
+        if (securePeelType == MpSogsMpsuConfig.SecurePeelType.REP5_PRSS_OPENED_FIRST) {
+            return IntStream.range(0, config.partyNum)
+                .mapToObj(partyIndex -> new Rep5PrssBenchmarkThread(
                     rpcs[partyIndex], inputs.get(partyIndex), expectedUnion, ptoConfig, config.taskId + trialIndex
                 ))
                 .toArray(BenchmarkThread[]::new);
@@ -557,6 +565,32 @@ public class MpSogsMpsuBenchmarkMain {
         @Override
         MpSogsTranscript runProtocol() {
             return new Rep4PrssMpSogsMpsuPartyRunner(rpc, config, taskId).run(localInput, expectedUnion);
+        }
+    }
+
+    /**
+     * REP5 PRSS benchmark participant thread.
+     */
+    private static class Rep5PrssBenchmarkThread extends BenchmarkThread {
+        private final Rpc rpc;
+        private final Set<Long> localInput;
+        private final Set<Long> expectedUnion;
+        private final MpSogsMpsuConfig config;
+        private final long taskId;
+
+        private Rep5PrssBenchmarkThread(Rpc rpc, Set<Long> localInput, Set<Long> expectedUnion,
+                                        MpSogsMpsuConfig config, long taskId) {
+            super("mp-sogs-rep5-prss-party-" + rpc.ownParty().getPartyId());
+            this.rpc = rpc;
+            this.localInput = localInput;
+            this.expectedUnion = expectedUnion;
+            this.config = config;
+            this.taskId = taskId;
+        }
+
+        @Override
+        MpSogsTranscript runProtocol() {
+            return new Rep5PrssMpSogsMpsuPartyRunner(rpc, config, taskId).run(localInput, expectedUnion);
         }
     }
 }
