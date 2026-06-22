@@ -30,6 +30,22 @@ public class MpSogsMpsuConfig {
          */
         ABB3,
         /**
+         * Generic honest-majority Shamir backend for 4/5-party semi-honest experiments.
+         */
+        SHAMIR,
+        /**
+         * Planned 4-party packed replicated Z2 backend.
+         */
+        REP4_PACKED,
+        /**
+         * 4-party packed replicated Z2 backend with PRSS-compressed share/open.
+         */
+        REP4_PRSS_PACKED,
+        /**
+         * Planned 5-party packed replicated Z2 backend.
+         */
+        REP5_PACKED,
+        /**
          * Placeholder for a future generic n-party semi-honest MPC implementation.
          */
         GENERIC_MPC,
@@ -52,6 +68,22 @@ public class MpSogsMpsuConfig {
         if (securePeelType == SecurePeelType.ABB3) {
             Preconditions.checkArgument(params.getPartyNum() == ABB3_PARTY_NUM,
                 "ABB3 MP-SOGS backend requires exactly %s parties: %s", ABB3_PARTY_NUM, params.getPartyNum());
+        }
+        if (securePeelType == SecurePeelType.SHAMIR) {
+            Preconditions.checkArgument(params.getPartyNum() >= 3,
+                "Shamir MP-SOGS backend requires at least 3 parties: %s", params.getPartyNum());
+        }
+        if (securePeelType == SecurePeelType.REP4_PACKED) {
+            Preconditions.checkArgument(params.getPartyNum() == 4,
+                "REP4 packed MP-SOGS backend requires exactly 4 parties: %s", params.getPartyNum());
+        }
+        if (securePeelType == SecurePeelType.REP4_PRSS_PACKED) {
+            Preconditions.checkArgument(params.getPartyNum() == 4,
+                "REP4 PRSS packed MP-SOGS backend requires exactly 4 parties: %s", params.getPartyNum());
+        }
+        if (securePeelType == SecurePeelType.REP5_PACKED) {
+            Preconditions.checkArgument(params.getPartyNum() == 5,
+                "REP5 packed MP-SOGS backend requires exactly 5 parties: %s", params.getPartyNum());
         }
         Preconditions.checkArgument(builder.maxHashSeedRetries > 0,
             "maxHashSeedRetries must be positive: %s", builder.maxHashSeedRetries);

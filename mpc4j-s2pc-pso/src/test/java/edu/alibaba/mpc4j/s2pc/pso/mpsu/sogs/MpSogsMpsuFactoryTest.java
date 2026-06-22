@@ -30,9 +30,55 @@ public class MpSogsMpsuFactoryTest {
         Assert.assertEquals(4, config.getMaxHashSeedRetries());
     }
 
+    @Test
+    public void testDefaultFourPartyConfigUsesShamir() {
+        MpSogsMpsuConfig config = MpSogsMpsuFactory.createDefaultConfig(SecurityModel.SEMI_HONEST, 4, 256);
+        Assert.assertEquals(MpSogsMpsuConfig.SecurePeelType.SHAMIR, config.getSecurePeelType());
+    }
+
+    @Test
+    public void testRep4PackedConfigAcceptsFourParty() {
+        MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(4, 256).build())
+            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.REP4_PACKED)
+            .build();
+        Assert.assertEquals(MpSogsMpsuConfig.SecurePeelType.REP4_PACKED, config.getSecurePeelType());
+    }
+
+    @Test
+    public void testRep4PrssPackedConfigAcceptsFourParty() {
+        MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(4, 256).build())
+            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED)
+            .build();
+        Assert.assertEquals(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED, config.getSecurePeelType());
+    }
+
     @Test(expected = IllegalArgumentException.class)
-    public void testSemiHonestRejectsFourPartyUntilGenericBackendExists() {
-        MpSogsMpsuFactory.createDefaultConfig(SecurityModel.SEMI_HONEST, 4, 256);
+    public void testRep4PackedConfigRejectsFiveParty() {
+        new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(5, 256).build())
+            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.REP4_PACKED)
+            .build();
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testRep4PrssPackedConfigRejectsFiveParty() {
+        new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(5, 256).build())
+            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED)
+            .build();
+    }
+
+    @Test
+    public void testRep5PackedConfigAcceptsFiveParty() {
+        MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(5, 256).build())
+            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.REP5_PACKED)
+            .build();
+        Assert.assertEquals(MpSogsMpsuConfig.SecurePeelType.REP5_PACKED, config.getSecurePeelType());
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testRep5PackedConfigRejectsFourParty() {
+        new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(4, 256).build())
+            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.REP5_PACKED)
+            .build();
     }
 
     @Test(expected = IllegalArgumentException.class)

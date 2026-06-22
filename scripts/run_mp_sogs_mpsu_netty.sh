@@ -55,27 +55,42 @@ LOG4J
 fi
 
 if [[ ! -f "${CONF_FILE}" ]]; then
+  PARTY_NUM="${PARTY_NUM:-3}"
+  if [[ "${PARTY_NUM}" -lt 3 || "${PARTY_NUM}" -gt 5 ]]; then
+    echo "[mp-sogs-netty] PARTY_NUM must be in [3, 5]: ${PARTY_NUM}" >&2
+    exit 1
+  fi
+  if [[ -z "${SECURE_PEEL_TYPE:-}" ]]; then
+    if [[ "${PARTY_NUM}" -eq 3 ]]; then
+      SECURE_PEEL_TYPE="ABB3"
+    else
+      SECURE_PEEL_TYPE="SHAMIR"
+    fi
+  fi
   FIRST_PORT="${FIRST_PORT:-9401}"
   SECOND_PORT="${SECOND_PORT:-9402}"
   THIRD_PORT="${THIRD_PORT:-9403}"
+  FOURTH_PORT="${FOURTH_PORT:-9404}"
+  FIFTH_PORT="${FIFTH_PORT:-9405}"
   SAVE_PATH="${SAVE_PATH:-${RUN_DIR}/out}"
   mkdir -p "${SAVE_PATH}"
-  cat > "${CONF_FILE}" <<CONF
-first_name = first
-first_ip = 127.0.0.1
-first_port = ${FIRST_PORT}
-
-second_name = second
-second_ip = 127.0.0.1
-second_port = ${SECOND_PORT}
-
-third_name = third
-third_ip = 127.0.0.1
-third_port = ${THIRD_PORT}
-
+  PARTY_NAMES=(first second third fourth fifth)
+  PARTY_PORTS=("${FIRST_PORT}" "${SECOND_PORT}" "${THIRD_PORT}" "${FOURTH_PORT}" "${FIFTH_PORT}")
+  : > "${CONF_FILE}"
+  for ((i = 0; i < PARTY_NUM; i++)); do
+    {
+      echo "${PARTY_NAMES[$i]}_name = ${PARTY_NAMES[$i]}"
+      echo "${PARTY_NAMES[$i]}_ip = 127.0.0.1"
+      echo "${PARTY_NAMES[$i]}_port = ${PARTY_PORTS[$i]}"
+      echo
+    } >> "${CONF_FILE}"
+  done
+  cat >> "${CONF_FILE}" <<CONF
 save_path = ${SAVE_PATH}
 append_string = ${APPEND_STRING:-netty}
 pto_type = MP_SOGS_MPSU
+party_num = ${PARTY_NUM}
+secure_peel_type = ${SECURE_PEEL_TYPE}
 
 log_set_size = ${LOG_SET_SIZE:-8}
 overlap = ${OVERLAP:-0.5}
@@ -101,7 +116,10 @@ echo "[mp-sogs-netty] config: ${CONF_FILE}"
 echo "[mp-sogs-netty] run dir: ${RUN_DIR}"
 
 PIDS=()
-for PARTY in first second third; do
+PARTY_NUM_FROM_ENV="${PARTY_NUM:-3}"
+PARTY_NAMES=(first second third fourth fifth)
+for ((i = 0; i < PARTY_NUM_FROM_ENV; i++)); do
+  PARTY="${PARTY_NAMES[$i]}"
   LOG_FILE="${RUN_DIR}/${PARTY}.log"
   echo "[mp-sogs-netty] starting ${PARTY}, log -> ${LOG_FILE}"
   java --add-modules jdk.incubator.vector \

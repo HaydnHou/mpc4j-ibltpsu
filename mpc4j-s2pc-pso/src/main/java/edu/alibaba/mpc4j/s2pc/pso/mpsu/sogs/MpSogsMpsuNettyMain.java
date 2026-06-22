@@ -5,6 +5,8 @@ import edu.alibaba.mpc4j.common.rpc.RpcPropertiesUtils;
 import edu.alibaba.mpc4j.common.rpc.main.MainPtoConfigUtils;
 import edu.alibaba.mpc4j.common.tool.utils.PropertiesUtils;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.abb3.Abb3MpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4prss.Rep4PrssMpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.shamir.ShamirMpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s3pc.abb3.basic.core.z2.TripletZ2cParty;
 import edu.alibaba.mpc4j.s3pc.abb3.basic.core.z2.replicate.Aby3Z2cConfig;
 import edu.alibaba.mpc4j.s3pc.abb3.basic.core.z2.replicate.Aby3Z2cFactory;
@@ -26,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
@@ -51,7 +54,19 @@ public class MpSogsMpsuNettyMain {
     /**
      * Number of parties supported by the current ABB3 backend.
      */
-    private static final int PARTY_NUM = 3;
+    private static final int DEFAULT_PARTY_NUM = 3;
+    /**
+     * Maximum party count supported by the current Netty launcher names.
+     */
+    private static final int MAX_NETTY_PARTY_NUM = 5;
+    /**
+     * Key: party number.
+     */
+    private static final String PARTY_NUM = "party_num";
+    /**
+     * Key: secure peel backend type.
+     */
+    private static final String SECURE_PEEL_TYPE = "secure_peel_type";
     /**
      * Key: use malicious ABB3 backend.
      */
@@ -136,6 +151,8 @@ public class MpSogsMpsuNettyMain {
     private final Properties properties;
     private final String ownName;
     private final Rpc ownRpc;
+    private final int partyNum;
+    private final MpSogsMpsuConfig.SecurePeelType securePeelType;
     private final boolean parallel;
     private final boolean malicious;
     private final boolean useMac;
@@ -171,7 +188,19 @@ public class MpSogsMpsuNettyMain {
         if (!outputFolder.exists() && !outputFolder.mkdirs()) {
             throw new IllegalStateException("failed to create output folder: " + outputFolder.getAbsolutePath());
         }
-        ownRpc = RpcPropertiesUtils.readNettyRpcWithOwnName(properties, ownName, "first", "second", "third");
+        partyNum = PropertiesUtils.readInt(properties, PARTY_NUM, DEFAULT_PARTY_NUM);
+        if (partyNum < 3 || partyNum > MAX_NETTY_PARTY_NUM) {
+            throw new IllegalArgumentException(PARTY_NUM + " must be in [3, " + MAX_NETTY_PARTY_NUM + "]: "
+                + partyNum);
+        }
+        securePeelType = PropertiesUtils.containsKeyword(properties, SECURE_PEEL_TYPE)
+            ? MpSogsMpsuConfig.SecurePeelType.valueOf(
+            PropertiesUtils.readString(properties, SECURE_PEEL_TYPE).toUpperCase(Locale.ROOT)
+        )
+            : partyNum == DEFAULT_PARTY_NUM
+            ? MpSogsMpsuConfig.SecurePeelType.ABB3
+            : MpSogsMpsuConfig.SecurePeelType.SHAMIR;
+        ownRpc = RpcPropertiesUtils.readNettyRpcWithOwnName(properties, ownName, partyPrefixes(partyNum));
         parallel = PropertiesUtils.readBoolean(properties, PARALLEL, true);
         malicious = PropertiesUtils.readBoolean(properties, IS_MALICIOUS, false);
         useMac = PropertiesUtils.readBoolean(properties, VERIFY_WITH_MAC, false);
@@ -205,7 +234,7 @@ public class MpSogsMpsuNettyMain {
     public static void main(String[] args) throws Exception {
         PropertiesUtils.loadLog4jProperties();
         if (args.length != 2) {
-            throw new IllegalArgumentException("Usage: MpSogsMpsuNettyMain <config-file-or-dir> <first|second|third>");
+            throw new IllegalArgumentException("Usage: MpSogsMpsuNettyMain <config-file-or-dir> <party-name>");
         }
         File inputFile = new File(args[0]);
         String ownName = args[1];
@@ -239,9 +268,9 @@ public class MpSogsMpsuNettyMain {
                 for (int trialIndex = 0; trialIndex < trials; trialIndex++) {
                     for (int setSize : setSizes) {
                         Set<Long> localInput = generateInputForParty(
-                            PARTY_NUM, ownRpc.ownParty().getPartyId(), setSize, overlap, trialIndex
+                            partyNum, ownRpc.ownParty().getPartyId(), setSize, overlap, trialIndex
                         );
-                        runOneTest(taskId, trialIndex, localInput, expectedUnionSize(PARTY_NUM, setSize, overlap),
+                        runOneTest(taskId, trialIndex, localInput, expectedUnionSize(partyNum, setSize, overlap),
                             printWriter);
                         taskId++;
                     }
@@ -255,29 +284,32 @@ public class MpSogsMpsuNettyMain {
                             PrintWriter printWriter) {
         LOGGER.info("{} run MP-SOGS: trial={}, localSetSize={}, tauMax={}, alpha={}, k={}, parallel={}",
             ownRpc.ownParty().getPartyName(), trialIndex, localInput.size(), unionUpperBound, alpha, hashNum, parallel);
-        TripletZ2cParty z2cParty = createZ2cParty(ownRpc, malicious, useMac, useSimMt);
-        z2cParty.setTaskId(taskId);
-        z2cParty.setParallel(parallel);
-        MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(PARTY_NUM, unionUpperBound)
+        MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(partyNum, unionUpperBound)
             .setAlpha(alpha)
             .setHashNum(hashNum)
             .setHashSeed(hashSeed + trialIndex)
             .setMaxPeelRounds(maxPeelRounds)
             .build();
         MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(params)
-            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.ABB3)
+            .setSecurePeelType(securePeelType)
             .setMaxHashSeedRetries(maxHashSeedRetries)
             .setMaxBatchCells(maxBatchCells)
             .build();
         ownRpc.synchronize();
         ownRpc.reset();
-        stopWatch.start();
-        try {
-            z2cParty.init();
-        } catch (Exception e) {
-            throw new IllegalStateException("failed to init ABB3 Z2 party", e);
+        TripletZ2cParty z2cParty = null;
+        if (securePeelType == MpSogsMpsuConfig.SecurePeelType.ABB3) {
+            z2cParty = createZ2cParty(ownRpc, malicious, useMac, useSimMt);
+            z2cParty.setTaskId(taskId);
+            z2cParty.setParallel(parallel);
+            stopWatch.start();
+            try {
+                z2cParty.init();
+            } catch (Exception e) {
+                throw new IllegalStateException("failed to init ABB3 Z2 party", e);
+            }
+            stopWatch.stop();
         }
-        stopWatch.stop();
         long initTime = stopWatch.getTime(TimeUnit.MILLISECONDS);
         stopWatch.reset();
         long initPacketNum = ownRpc.getSendDataPacketNum();
@@ -286,7 +318,16 @@ public class MpSogsMpsuNettyMain {
         ownRpc.synchronize();
         ownRpc.reset();
         stopWatch.start();
-        MpSogsTranscript transcript = new Abb3MpSogsMpsuPartyRunner(z2cParty, config).runAfterInit(localInput);
+        MpSogsTranscript transcript;
+        if (securePeelType == MpSogsMpsuConfig.SecurePeelType.ABB3) {
+            transcript = new Abb3MpSogsMpsuPartyRunner(z2cParty, config).runAfterInit(localInput);
+        } else if (securePeelType == MpSogsMpsuConfig.SecurePeelType.SHAMIR) {
+            transcript = new ShamirMpSogsMpsuPartyRunner(ownRpc, config, taskId).run(localInput);
+        } else if (securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED) {
+            transcript = new Rep4PrssMpSogsMpsuPartyRunner(ownRpc, config, taskId).run(localInput);
+        } else {
+            throw new UnsupportedOperationException("unsupported secure peel type: " + securePeelType);
+        }
         stopWatch.stop();
         long ptoTime = stopWatch.getTime(TimeUnit.MILLISECONDS);
         stopWatch.reset();
@@ -302,7 +343,9 @@ public class MpSogsMpsuNettyMain {
         }
         ownRpc.synchronize();
         ownRpc.reset();
-        z2cParty.destroy();
+        if (z2cParty != null) {
+            z2cParty.destroy();
+        }
     }
 
     private TripletZ2cParty createZ2cParty(Rpc rpc, boolean malicious, boolean useMac, boolean useSimMt) {
@@ -381,9 +424,6 @@ public class MpSogsMpsuNettyMain {
 
     static Set<Long> generateInputForParty(int partyNum, int partyIndex, int setSize, double commonOverlap,
                                            int trialIndex) {
-        if (partyNum != PARTY_NUM) {
-            throw new IllegalArgumentException("current ABB3 backend supports exactly 3 parties");
-        }
         if (partyIndex < 0 || partyIndex >= partyNum) {
             throw new IllegalArgumentException("invalid partyIndex: " + partyIndex);
         }
@@ -405,6 +445,11 @@ public class MpSogsMpsuNettyMain {
         int commonCount = (int) Math.round(setSize * commonOverlap);
         int uniqueCount = setSize - commonCount;
         return commonCount + partyNum * uniqueCount;
+    }
+
+    private static String[] partyPrefixes(int partyNum) {
+        String[] prefixes = new String[]{"first", "second", "third", "fourth", "fifth"};
+        return Arrays.copyOf(prefixes, partyNum);
     }
 
     private void writeUnionOutput(int taskId, int trialIndex, MpSogsTranscript transcript) {

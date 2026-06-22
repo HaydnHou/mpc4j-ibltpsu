@@ -3,6 +3,9 @@ package edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs;
 import edu.alibaba.mpc4j.common.rpc.Rpc;
 import edu.alibaba.mpc4j.common.rpc.impl.memory.MemoryRpcManager;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.abb3.Abb3MpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4.Rep4MpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4prss.Rep4PrssMpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.shamir.ShamirMpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s3pc.abb3.basic.core.z2.TripletZ2cParty;
 import edu.alibaba.mpc4j.s3pc.abb3.basic.core.z2.replicate.Aby3Z2cConfig;
 import edu.alibaba.mpc4j.s3pc.abb3.basic.core.z2.replicate.Aby3Z2cFactory;
@@ -50,11 +53,9 @@ public class MpSogsMpsuBenchmarkMain {
     }
 
     public static BenchmarkResult run(BenchmarkConfig config, int trialIndex) throws InterruptedException {
-        if (config.partyNum != PARTY_NUM) {
-            throw new IllegalArgumentException("current ABB3 benchmark supports exactly 3 parties");
-        }
         List<Set<Long>> inputs = generateInputs(config.partyNum, config.n, config.commonOverlap, trialIndex);
         Set<Long> expectedUnion = ClearMpSogsMpsu.unionOf(inputs);
+        MpSogsMpsuConfig.SecurePeelType securePeelType = config.effectiveSecurePeelType();
         MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(config.partyNum, config.tauMax(expectedUnion.size()))
             .setAlpha(config.alpha)
             .setHashNum(config.hashNum)
@@ -62,22 +63,17 @@ public class MpSogsMpsuBenchmarkMain {
             .setMaxPeelRounds(config.maxPeelRounds)
             .build();
         MpSogsMpsuConfig ptoConfig = new MpSogsMpsuConfig.Builder(params)
-            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.ABB3)
+            .setSecurePeelType(securePeelType)
             .setMaxHashSeedRetries(config.maxHashSeedRetries)
             .setMaxBatchCells(config.maxBatchCells)
             .build();
         MemoryRpcManager rpcManager = new MemoryRpcManager(config.partyNum);
         Rpc[] rpcs = IntStream.range(0, config.partyNum).mapToObj(rpcManager::getRpc).toArray(Rpc[]::new);
         Arrays.stream(rpcs).forEach(Rpc::connect);
-        TripletZ2cParty[] parties = createParties(
-            rpcs, config.parallel, config.taskId + trialIndex, config.crBufferByteSize
-        );
         Arrays.stream(rpcs).forEach(Rpc::reset);
-        BenchmarkThread[] threads = IntStream.range(0, config.partyNum)
-            .mapToObj(partyIndex -> new BenchmarkThread(
-                parties[partyIndex], inputs.get(partyIndex), expectedUnion, ptoConfig
-            ))
-            .toArray(BenchmarkThread[]::new);
+        BenchmarkThread[] threads = createBenchmarkThreads(
+            config, trialIndex, rpcs, inputs, expectedUnion, ptoConfig, securePeelType
+        );
         try {
             Arrays.stream(threads).forEach(Thread::start);
             waitForThreads(threads, config.joinTimeoutSeconds);
@@ -98,11 +94,49 @@ public class MpSogsMpsuBenchmarkMain {
                     thread.interrupt();
                 }
             }
-            for (TripletZ2cParty party : parties) {
-                party.destroy();
+            for (BenchmarkThread thread : threads) {
+                thread.destroy();
             }
             Arrays.stream(rpcs).forEach(Rpc::disconnect);
         }
+    }
+
+    private static BenchmarkThread[] createBenchmarkThreads(BenchmarkConfig config, int trialIndex, Rpc[] rpcs,
+                                                            List<Set<Long>> inputs, Set<Long> expectedUnion,
+                                                            MpSogsMpsuConfig ptoConfig,
+                                                            MpSogsMpsuConfig.SecurePeelType securePeelType) {
+        if (securePeelType == MpSogsMpsuConfig.SecurePeelType.ABB3) {
+            TripletZ2cParty[] parties = createParties(
+                rpcs, config.parallel, config.taskId + trialIndex, config.crBufferByteSize
+            );
+            return IntStream.range(0, config.partyNum)
+                .mapToObj(partyIndex -> new Abb3BenchmarkThread(
+                    parties[partyIndex], inputs.get(partyIndex), expectedUnion, ptoConfig
+                ))
+                .toArray(BenchmarkThread[]::new);
+        }
+        if (securePeelType == MpSogsMpsuConfig.SecurePeelType.SHAMIR) {
+            return IntStream.range(0, config.partyNum)
+                .mapToObj(partyIndex -> new ShamirBenchmarkThread(
+                    rpcs[partyIndex], inputs.get(partyIndex), expectedUnion, ptoConfig, config.taskId + trialIndex
+                ))
+                .toArray(BenchmarkThread[]::new);
+        }
+        if (securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PACKED) {
+            return IntStream.range(0, config.partyNum)
+                .mapToObj(partyIndex -> new Rep4BenchmarkThread(
+                    rpcs[partyIndex], inputs.get(partyIndex), expectedUnion, ptoConfig, config.taskId + trialIndex
+                ))
+                .toArray(BenchmarkThread[]::new);
+        }
+        if (securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED) {
+            return IntStream.range(0, config.partyNum)
+                .mapToObj(partyIndex -> new Rep4PrssBenchmarkThread(
+                    rpcs[partyIndex], inputs.get(partyIndex), expectedUnion, ptoConfig, config.taskId + trialIndex
+                ))
+                .toArray(BenchmarkThread[]::new);
+        }
+        throw new UnsupportedOperationException("unsupported benchmark secure peel type: " + securePeelType);
     }
 
     private static void waitForThreads(BenchmarkThread[] threads, int joinTimeoutSeconds) throws InterruptedException {
@@ -208,6 +242,7 @@ public class MpSogsMpsuBenchmarkMain {
         private int joinTimeoutSeconds = 0;
         private int maxBatchCells = MpSogsMpsuConfig.DEFAULT_MAX_BATCH_CELLS;
         private int crBufferByteSize = 1 << 24;
+        private MpSogsMpsuConfig.SecurePeelType securePeelType;
 
         public static BenchmarkConfig fromArgs(String[] args) {
             BenchmarkConfig config = new BenchmarkConfig();
@@ -268,6 +303,10 @@ public class MpSogsMpsuBenchmarkMain {
                     case "cr_buffer_byte_size":
                         config.crBufferByteSize = Integer.parseInt(value);
                         break;
+                    case "securepeeltype":
+                    case "secure_peel_type":
+                        config.securePeelType = MpSogsMpsuConfig.SecurePeelType.valueOf(value.toUpperCase(Locale.ROOT));
+                        break;
                     default:
                         throw new IllegalArgumentException("unknown argument: " + arg);
                 }
@@ -281,6 +320,15 @@ public class MpSogsMpsuBenchmarkMain {
 
         private int tauMax(int unionSize) {
             return tauMax == null ? unionSize : tauMax;
+        }
+
+        private MpSogsMpsuConfig.SecurePeelType effectiveSecurePeelType() {
+            if (securePeelType != null) {
+                return securePeelType;
+            }
+            return partyNum == PARTY_NUM
+                ? MpSogsMpsuConfig.SecurePeelType.ABB3
+                : MpSogsMpsuConfig.SecurePeelType.SHAMIR;
         }
     }
 
@@ -377,33 +425,137 @@ public class MpSogsMpsuBenchmarkMain {
     /**
      * One benchmark participant thread.
      */
-    private static class BenchmarkThread extends Thread {
-        private final TripletZ2cParty z2cParty;
-        private final Set<Long> localInput;
-        private final Set<Long> expectedUnion;
-        private final MpSogsMpsuConfig config;
+    private abstract static class BenchmarkThread extends Thread {
         private MpSogsTranscript transcript;
         private long timeMs;
         private Throwable throwable;
 
-        private BenchmarkThread(TripletZ2cParty z2cParty, Set<Long> localInput, Set<Long> expectedUnion,
-                                MpSogsMpsuConfig config) {
-            this.z2cParty = z2cParty;
-            this.localInput = localInput;
-            this.expectedUnion = expectedUnion;
-            this.config = config;
-            setName("mp-sogs-party-" + z2cParty.ownParty().getPartyId());
+        private BenchmarkThread(String name) {
+            setName(name);
+        }
+
+        abstract MpSogsTranscript runProtocol();
+
+        void destroy() {
+            // empty
         }
 
         @Override
         public void run() {
             try {
                 long start = System.nanoTime();
-                transcript = new Abb3MpSogsMpsuPartyRunner(z2cParty, config).run(localInput, expectedUnion);
+                transcript = runProtocol();
                 timeMs = (System.nanoTime() - start) / 1_000_000L;
             } catch (Throwable t) {
                 throwable = t;
             }
+        }
+    }
+
+    /**
+     * ABB3 benchmark participant thread.
+     */
+    private static class Abb3BenchmarkThread extends BenchmarkThread {
+        private final TripletZ2cParty z2cParty;
+        private final Set<Long> localInput;
+        private final Set<Long> expectedUnion;
+        private final MpSogsMpsuConfig config;
+
+        private Abb3BenchmarkThread(TripletZ2cParty z2cParty, Set<Long> localInput, Set<Long> expectedUnion,
+                                    MpSogsMpsuConfig config) {
+            super("mp-sogs-abb3-party-" + z2cParty.ownParty().getPartyId());
+            this.z2cParty = z2cParty;
+            this.localInput = localInput;
+            this.expectedUnion = expectedUnion;
+            this.config = config;
+        }
+
+        @Override
+        MpSogsTranscript runProtocol() {
+            return new Abb3MpSogsMpsuPartyRunner(z2cParty, config).run(localInput, expectedUnion);
+        }
+
+        @Override
+        void destroy() {
+            z2cParty.destroy();
+        }
+    }
+
+    /**
+     * Shamir benchmark participant thread.
+     */
+    private static class ShamirBenchmarkThread extends BenchmarkThread {
+        private final Rpc rpc;
+        private final Set<Long> localInput;
+        private final Set<Long> expectedUnion;
+        private final MpSogsMpsuConfig config;
+        private final long taskId;
+
+        private ShamirBenchmarkThread(Rpc rpc, Set<Long> localInput, Set<Long> expectedUnion,
+                                      MpSogsMpsuConfig config, long taskId) {
+            super("mp-sogs-shamir-party-" + rpc.ownParty().getPartyId());
+            this.rpc = rpc;
+            this.localInput = localInput;
+            this.expectedUnion = expectedUnion;
+            this.config = config;
+            this.taskId = taskId;
+        }
+
+        @Override
+        MpSogsTranscript runProtocol() {
+            return new ShamirMpSogsMpsuPartyRunner(rpc, config, taskId).run(localInput, expectedUnion);
+        }
+    }
+
+    /**
+     * REP4 benchmark participant thread.
+     */
+    private static class Rep4BenchmarkThread extends BenchmarkThread {
+        private final Rpc rpc;
+        private final Set<Long> localInput;
+        private final Set<Long> expectedUnion;
+        private final MpSogsMpsuConfig config;
+        private final long taskId;
+
+        private Rep4BenchmarkThread(Rpc rpc, Set<Long> localInput, Set<Long> expectedUnion,
+                                    MpSogsMpsuConfig config, long taskId) {
+            super("mp-sogs-rep4-party-" + rpc.ownParty().getPartyId());
+            this.rpc = rpc;
+            this.localInput = localInput;
+            this.expectedUnion = expectedUnion;
+            this.config = config;
+            this.taskId = taskId;
+        }
+
+        @Override
+        MpSogsTranscript runProtocol() {
+            return new Rep4MpSogsMpsuPartyRunner(rpc, config, taskId).run(localInput, expectedUnion);
+        }
+    }
+
+    /**
+     * REP4 PRSS benchmark participant thread.
+     */
+    private static class Rep4PrssBenchmarkThread extends BenchmarkThread {
+        private final Rpc rpc;
+        private final Set<Long> localInput;
+        private final Set<Long> expectedUnion;
+        private final MpSogsMpsuConfig config;
+        private final long taskId;
+
+        private Rep4PrssBenchmarkThread(Rpc rpc, Set<Long> localInput, Set<Long> expectedUnion,
+                                        MpSogsMpsuConfig config, long taskId) {
+            super("mp-sogs-rep4-prss-party-" + rpc.ownParty().getPartyId());
+            this.rpc = rpc;
+            this.localInput = localInput;
+            this.expectedUnion = expectedUnion;
+            this.config = config;
+            this.taskId = taskId;
+        }
+
+        @Override
+        MpSogsTranscript runProtocol() {
+            return new Rep4PrssMpSogsMpsuPartyRunner(rpc, config, taskId).run(localInput, expectedUnion);
         }
     }
 }
