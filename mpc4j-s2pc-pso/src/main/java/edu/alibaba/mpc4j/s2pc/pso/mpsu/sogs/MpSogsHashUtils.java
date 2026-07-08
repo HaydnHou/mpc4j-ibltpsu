@@ -23,11 +23,23 @@ public class MpSogsHashUtils {
      * @return k row-disjoint cell indexes.
      */
     public static int[] cells(long value, MpSogsMpsuParams params) {
-        int hashNum = params.getHashNum();
-        int rowCellNum = params.getRowCellNum();
+        return cells(value, params, MpSogsTier.MAIN);
+    }
+
+    /**
+     * Returns one row-disjoint cell per hash row for one element in a SOGS tier.
+     *
+     * @param value element.
+     * @param params parameters.
+     * @param tier SOGS tier.
+     * @return k row-disjoint cell indexes.
+     */
+    public static int[] cells(long value, MpSogsMpsuParams params, MpSogsTier tier) {
+        int hashNum = params.getHashNum(tier);
+        int rowCellNum = params.getRowCellNum(tier);
         int[] cells = new int[hashNum];
         for (int hashIndex = 0; hashIndex < hashNum; hashIndex++) {
-            long z = splitMix64(value ^ params.getHashSeed() ^ rowSeed(hashIndex));
+            long z = splitMix64(value ^ params.getHashSeed(tier) ^ rowSeed(hashIndex));
             cells[hashIndex] = hashIndex * rowCellNum + toIndex(z, rowCellNum);
         }
         return cells;

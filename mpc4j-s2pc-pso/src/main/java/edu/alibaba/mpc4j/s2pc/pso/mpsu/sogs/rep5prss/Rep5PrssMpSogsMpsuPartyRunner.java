@@ -9,6 +9,7 @@ import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsMpsuParams;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsPeelResult;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsRoundStats;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsSketch;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsTier;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsTranscript;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.SecureMpSogsUnionPeel;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PackedBooleanShare;
@@ -80,14 +81,15 @@ public class Rep5PrssMpSogsMpsuPartyRunner {
     private MpSogsTranscript runSingleAttempt(Set<Long> localInput, Set<Long> expectedUnion,
                                               MpSogsMpsuParams params, int retryIndex) {
         MpSogsSketch localSketch = MpSogsSketch.encode(localInput, params);
-        int backendBatchSize = Math.min(config.getMaxBatchCells(), params.getCellNum());
+        int backendBatchSize = Math.min(config.getMaxBatchCells(), maxTierCellNum(params));
         SecureMpSogsUnionPeel unionPeel = new Rep5PrssSecureMpSogsUnionPeel(
             rpc, localSketch, params, taskId + retryIndex, backendBatchSize,
             config.getSecurePeelType() == MpSogsMpsuConfig.SecurePeelType.REP5_PRSS_OPENED_FIRST
         );
         Set<Long> unionOutput = new LinkedHashSet<>();
         List<MpSogsRoundStats> stats = new ArrayList<>();
-        int[] queue = allCells(params.getCellNum());
+        MpSogsTier tier = MpSogsTier.MAIN;
+        int[] queue = allCells(params.getCellNum(tier));
         String failureReason = "";
         boolean residualChecked = false;
         for (int round = 0; queue.length > 0; round++) {
@@ -95,7 +97,7 @@ public class Rep5PrssMpSogsMpsuPartyRunner {
                 failureReason = "exceeds max peel rounds";
                 break;
             }
-            PeelRoundOutput output = peelQueueInChunks(unionPeel, round, queue, unionOutput);
+            PeelRoundOutput output = peelQueueInChunks(unionPeel, round, tier, queue, unionOutput);
             Set<Long> newlyOpened = output.newlyOpened;
             int duplicateOpenings = output.openedBatchSize - newlyOpened.size();
             stats.add(new MpSogsRoundStats(
@@ -103,6 +105,11 @@ public class Rep5PrssMpSogsMpsuPartyRunner {
                 output.sendBytes, output.receiveBytes, output.networkRoundCount
             ));
             if (newlyOpened.isEmpty()) {
+                if (params.isTwoTier() && tier == MpSogsTier.MAIN && openAnyResidual(localSketch)) {
+                    tier = MpSogsTier.AUXILIARY;
+                    queue = allCells(params.getCellNum(tier));
+                    continue;
+                }
                 residualChecked = true;
                 if (openAnyResidual(localSketch)) {
                     failureReason = "stalled before all residual elements were peeled";
@@ -110,7 +117,7 @@ public class Rep5PrssMpSogsMpsuPartyRunner {
                 break;
             }
             newlyOpened.forEach(localSketch::deleteIfPresentOnce);
-            queue = nextQueueArray(newlyOpened, params);
+            queue = nextQueueArray(newlyOpened, params, tier);
         }
         if (failureReason.isEmpty() && !residualChecked && openAnyResidual(localSketch)) {
             failureReason = "queue exhausted before all residual elements were peeled";
@@ -125,13 +132,14 @@ public class Rep5PrssMpSogsMpsuPartyRunner {
         return new MpSogsTranscript(unionOutput, stats, success, failureReason);
     }
 
-    private PeelRoundOutput peelQueueInChunks(SecureMpSogsUnionPeel unionPeel, int round, int[] batchCells,
+    private PeelRoundOutput peelQueueInChunks(SecureMpSogsUnionPeel unionPeel, int round, MpSogsTier tier,
+                                              int[] batchCells,
                                               Set<Long> unionOutput) {
         int maxBatchCells = config.getMaxBatchCells();
         if (batchCells.length <= maxBatchCells) {
             long sendBytesBefore = rpc.getSendByteLength();
             BatchMpSogsPeelOutput output = unionPeel.peelBatch(new BatchMpSogsPeelInput(
-                round, toCellList(batchCells, 0, batchCells.length)
+                round, tier, toCellList(batchCells, 0, batchCells.length)
             ));
             long sendBytes = Math.max(0L, rpc.getSendByteLength() - sendBytesBefore);
             return absorbResults(output, unionOutput, sendBytes);
@@ -145,7 +153,7 @@ public class Rep5PrssMpSogsMpsuPartyRunner {
             int to = Math.min(batchCells.length, from + maxBatchCells);
             List<Integer> chunkCells = toCellList(batchCells, from, to);
             long sendBytesBefore = rpc.getSendByteLength();
-            BatchMpSogsPeelOutput output = unionPeel.peelBatch(new BatchMpSogsPeelInput(round, chunkCells));
+            BatchMpSogsPeelOutput output = unionPeel.peelBatch(new BatchMpSogsPeelInput(round, tier, chunkCells));
             sendBytes += Math.max(0L, rpc.getSendByteLength() - sendBytesBefore);
             receiveBytes += output.getReceiveBytes();
             networkRoundCount += output.getRoundCount();
@@ -200,14 +208,14 @@ public class Rep5PrssMpSogsMpsuPartyRunner {
         return result;
     }
 
-    private static int[] nextQueueArray(Set<Long> newlyOpened, MpSogsMpsuParams params) {
+    private static int[] nextQueueArray(Set<Long> newlyOpened, MpSogsMpsuParams params, MpSogsTier tier) {
         if (newlyOpened.isEmpty()) {
             return new int[0];
         }
-        int[] nextQueue = new int[Math.multiplyExact(newlyOpened.size(), params.getHashNum())];
+        int[] nextQueue = new int[Math.multiplyExact(newlyOpened.size(), params.getHashNum(tier))];
         int size = 0;
         for (long value : newlyOpened) {
-            for (int cellIndex : MpSogsHashUtils.cells(value, params)) {
+            for (int cellIndex : MpSogsHashUtils.cells(value, params, tier)) {
                 nextQueue[size++] = cellIndex;
             }
         }
@@ -224,6 +232,12 @@ public class Rep5PrssMpSogsMpsuPartyRunner {
         return uniqueSize == nextQueue.length ? nextQueue : Arrays.copyOf(nextQueue, uniqueSize);
     }
 
+    private static int maxTierCellNum(MpSogsMpsuParams params) {
+        return params.isTwoTier()
+            ? Math.max(params.getCellNum(MpSogsTier.MAIN), params.getCellNum(MpSogsTier.AUXILIARY))
+            : params.getCellNum();
+    }
+
     private static MpSogsMpsuParams deriveRetryParams(MpSogsMpsuParams params, int retryIndex) {
         if (retryIndex == 0) {
             return params;
@@ -231,6 +245,9 @@ public class Rep5PrssMpSogsMpsuPartyRunner {
         return new MpSogsMpsuParams.Builder(params.getPartyNum(), params.getTauMax())
             .setAlpha(params.getAlpha())
             .setHashNum(params.getHashNum())
+            .setTwoTier(params.isTwoTier())
+            .setAuxiliaryHashNum(params.getAuxiliaryHashNum())
+            .setAuxiliaryCellNum(params.getAuxiliaryCellNum())
             .setHashSeed(params.getHashSeed() + HASH_SEED_RETRY_STRIDE * retryIndex)
             .setMaxPeelRounds(params.getMaxPeelRounds())
             .build();

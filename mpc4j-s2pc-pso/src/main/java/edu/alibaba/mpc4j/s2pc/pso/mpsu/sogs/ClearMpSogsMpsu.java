@@ -35,7 +35,8 @@ public class ClearMpSogsMpsu {
                                             Set<Long> expectedUnion) {
         Set<Long> unionOutput = new LinkedHashSet<>();
         List<MpSogsRoundStats> stats = new ArrayList<>();
-        Set<Integer> queue = IntStream.range(0, params.getCellNum()).boxed().collect(Collectors.toCollection(TreeSet::new));
+        MpSogsTier tier = MpSogsTier.MAIN;
+        Set<Integer> queue = allCells(params, tier);
         String failureReason = "";
         for (int round = 0; !queue.isEmpty(); round++) {
             if (round >= params.getMaxPeelRounds()) {
@@ -45,7 +46,7 @@ public class ClearMpSogsMpsu {
             List<Long> openedBatch = new ArrayList<>();
             long calls = 0L;
             for (int cellIndex : queue) {
-                MpSogsPeelResult result = ClearMpSogsUnionPeel.uPeel(sketches, cellIndex);
+                MpSogsPeelResult result = ClearMpSogsUnionPeel.uPeel(sketches, tier, cellIndex);
                 calls++;
                 if (!result.isBottom()) {
                     openedBatch.add(result.getValue());
@@ -59,6 +60,11 @@ public class ClearMpSogsMpsu {
                 round, queue.size(), openedBatch.size(), newlyOpened.size(), duplicateOpenings, calls
             ));
             if (newlyOpened.isEmpty()) {
+                if (params.isTwoTier() && tier == MpSogsTier.MAIN && hasResidual(sketches)) {
+                    tier = MpSogsTier.AUXILIARY;
+                    queue = allCells(params, tier);
+                    continue;
+                }
                 break;
             }
             for (long value : newlyOpened) {
@@ -67,7 +73,7 @@ public class ClearMpSogsMpsu {
                 }
             }
             unionOutput.addAll(newlyOpened);
-            queue = nextQueue(newlyOpened, params);
+            queue = nextQueue(newlyOpened, params, tier);
         }
         boolean success = unionOutput.equals(expectedUnion);
         if (!success && failureReason.isEmpty()) {
@@ -83,12 +89,24 @@ public class ClearMpSogsMpsu {
     }
 
     public static Set<Integer> nextQueue(Collection<Long> newlyOpened, MpSogsMpsuParams params) {
+        return nextQueue(newlyOpened, params, MpSogsTier.MAIN);
+    }
+
+    public static Set<Integer> nextQueue(Collection<Long> newlyOpened, MpSogsMpsuParams params, MpSogsTier tier) {
         Set<Integer> nextQueue = new TreeSet<>();
         for (long value : newlyOpened) {
-            for (int cellIndex : MpSogsHashUtils.cells(value, params)) {
+            for (int cellIndex : MpSogsHashUtils.cells(value, params, tier)) {
                 nextQueue.add(cellIndex);
             }
         }
         return nextQueue;
+    }
+
+    static Set<Integer> allCells(MpSogsMpsuParams params, MpSogsTier tier) {
+        return IntStream.range(0, params.getCellNum(tier)).boxed().collect(Collectors.toCollection(TreeSet::new));
+    }
+
+    static boolean hasResidual(List<MpSogsSketch> sketches) {
+        return sketches.stream().anyMatch(sketch -> !sketch.getRemainingElements().isEmpty());
     }
 }

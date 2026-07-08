@@ -23,7 +23,8 @@ public class MpSogsMpsuSimulatorMain {
 
     public static void main(String[] args) {
         Config config = Config.parse(args);
-        System.out.println("parties,n,overlap,alpha,k,max_hash_seed_retries,hash_seed_attempts,trial,success,"
+        System.out.println("parties,n,overlap,alpha,k,two_tier,aux_k,aux_cells,"
+            + "max_hash_seed_retries,hash_seed_attempts,trial,success,"
             + "unionSize,rounds,upeelCalls,duplicateOpenings,comm16B,comm32B,comm48B,comm96B,seqCallEstimate,"
             + "seqToMpCallRatio,failureReason");
         for (double overlap : config.overlaps) {
@@ -35,8 +36,9 @@ public class MpSogsMpsuSimulatorMain {
                 long seqEstimate = sequentialCallEstimate(config.parties, config.n, overlap, config.alpha, config.k);
                 double seqToMp = calls == 0 ? 0.0 : (double) seqEstimate / calls;
                 System.out.printf(
-                    "%d,%d,%.4f,%.4f,%d,%d,%d,%d,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,\"%s\"%n",
-                    config.parties, config.n, overlap, config.alpha, config.k, config.maxHashSeedRetries,
+                    "%d,%d,%.4f,%.4f,%d,%s,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,\"%s\"%n",
+                    config.parties, config.n, overlap, config.alpha, config.k, config.twoTier,
+                    config.auxiliaryHashNum, config.auxiliaryCellNum, config.maxHashSeedRetries,
                     transcript.getHashSeedAttempts(), trial, transcript.isSuccess(), unionSize,
                     transcript.getRoundNum(), calls,
                     transcript.getDuplicateOpenings(), calls * 16, calls * 32, calls * 48, calls * 96,
@@ -55,6 +57,9 @@ public class MpSogsMpsuSimulatorMain {
             MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(config.parties, unionSize)
                 .setAlpha(config.alpha)
                 .setHashNum(config.k)
+                .setTwoTier(config.twoTier)
+                .setAuxiliaryHashNum(config.auxiliaryHashNum)
+                .setAuxiliaryCellNum(config.auxiliaryCellNum)
                 .setHashSeed(config.seed + 1_000_003L * trial + Math.round(overlap * 1_000_000)
                     + HASH_SEED_RETRY_STRIDE * retryIndex)
                 .build();
@@ -119,6 +124,9 @@ public class MpSogsMpsuSimulatorMain {
         private int n = 1024;
         private double alpha = MpSogsMpsuParams.DEFAULT_ALPHA;
         private int k = MpSogsMpsuParams.DEFAULT_HASH_NUM;
+        private boolean twoTier = false;
+        private int auxiliaryHashNum = MpSogsMpsuParams.DEFAULT_HASH_NUM;
+        private int auxiliaryCellNum = MpSogsMpsuParams.DEFAULT_AUXILIARY_CELL_NUM;
         private int trials = 5;
         private long seed = MpSogsMpsuParams.DEFAULT_HASH_SEED;
         private double[] overlaps = new double[]{0.0, 0.5, 0.9};
@@ -142,6 +150,11 @@ public class MpSogsMpsuSimulatorMain {
                     case "--n" -> config.n = parseInt(value);
                     case "--alpha" -> config.alpha = Double.parseDouble(value);
                     case "--k" -> config.k = Integer.parseInt(value);
+                    case "--twoTier", "--two_tier" -> config.twoTier = Boolean.parseBoolean(value);
+                    case "--auxK", "--auxiliaryHashNum", "--auxiliary_hash_num" ->
+                        config.auxiliaryHashNum = Integer.parseInt(value);
+                    case "--auxiliaryCellNum", "--auxiliary_cell_num", "--auxiliaryCells" ->
+                        config.auxiliaryCellNum = Integer.parseInt(value);
                     case "--trials" -> config.trials = Integer.parseInt(value);
                     case "--seed" -> config.seed = Long.parseLong(value);
                     case "--overlaps" -> config.overlaps = parseOverlaps(value);

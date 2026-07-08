@@ -58,6 +58,29 @@ public class BatchMpSogsMpsuTest {
         Assert.assertEquals(2 * transcript.getRoundNum(), transcript.getNetworkRoundCount());
     }
 
+    @Test
+    public void testTwoTierSwitchesToAuxiliaryTier() {
+        List<Set<Long>> inputs = generateInputs(3, 8, 0.0);
+        MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(3, union(inputs).size())
+            .setAlpha(1.25)
+            .setHashNum(3)
+            .setTwoTier(true)
+            .setAuxiliaryCellNum(96)
+            .build();
+        List<MpSogsSketch> sketches = inputs.stream()
+            .map(input -> MpSogsSketch.encode(input, params))
+            .collect(Collectors.toCollection(ArrayList::new));
+        MpSogsTranscript transcript = BatchMpSogsMpsu.runWithSketches(
+            sketches,
+            params,
+            union(inputs),
+            new AuxiliaryOnlyUnionPeel(sketches)
+        );
+        Assert.assertTrue(transcript.getFailureReason(), transcript.isSuccess());
+        Assert.assertEquals(union(inputs), transcript.getUnionOutput());
+        Assert.assertTrue(transcript.getRoundNum() >= 2);
+    }
+
     private static class AccountingClearUnionPeel implements SecureMpSogsUnionPeel {
         private final List<MpSogsSketch> sketches;
         private final long sendBytes;
@@ -74,9 +97,31 @@ public class BatchMpSogsMpsuTest {
         @Override
         public BatchMpSogsPeelOutput peelBatch(BatchMpSogsPeelInput input) {
             List<MpSogsPeelResult> results = input.getCellIndexes().stream()
-                .map(cellIndex -> ClearMpSogsUnionPeel.uPeel(sketches, cellIndex))
+                .map(cellIndex -> ClearMpSogsUnionPeel.uPeel(sketches, input.getTier(), cellIndex))
                 .collect(Collectors.toCollection(ArrayList::new));
             return new BatchMpSogsPeelOutput(results, sendBytes, receiveBytes, roundCount);
+        }
+    }
+
+    private static class AuxiliaryOnlyUnionPeel implements SecureMpSogsUnionPeel {
+        private final List<MpSogsSketch> sketches;
+
+        AuxiliaryOnlyUnionPeel(List<MpSogsSketch> sketches) {
+            this.sketches = sketches;
+        }
+
+        @Override
+        public BatchMpSogsPeelOutput peelBatch(BatchMpSogsPeelInput input) {
+            if (input.getTier() == MpSogsTier.MAIN) {
+                List<MpSogsPeelResult> bottomResults = input.getCellIndexes().stream()
+                    .map(cellIndex -> MpSogsPeelResult.bottom())
+                    .collect(Collectors.toCollection(ArrayList::new));
+                return new BatchMpSogsPeelOutput(bottomResults, 0L, 0L, 0);
+            }
+            List<MpSogsPeelResult> results = input.getCellIndexes().stream()
+                .map(cellIndex -> ClearMpSogsUnionPeel.uPeel(sketches, input.getTier(), cellIndex))
+                .collect(Collectors.toCollection(ArrayList::new));
+            return new BatchMpSogsPeelOutput(results, 0L, 0L, 0);
         }
     }
 

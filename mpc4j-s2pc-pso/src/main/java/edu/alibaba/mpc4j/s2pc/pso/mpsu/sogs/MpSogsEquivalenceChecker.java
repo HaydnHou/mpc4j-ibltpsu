@@ -4,9 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 /**
  * Checks clear MP-SOGS against direct Encode(U) peeling.
@@ -26,7 +24,8 @@ public class MpSogsEquivalenceChecker {
             .collect(Collectors.toCollection(ArrayList::new));
         MpSogsSketch directSketch = MpSogsSketch.encode(union, params);
         Set<Long> unionOutput = new LinkedHashSet<>();
-        Set<Integer> queue = IntStream.range(0, params.getCellNum()).boxed().collect(Collectors.toCollection(TreeSet::new));
+        MpSogsTier tier = MpSogsTier.MAIN;
+        Set<Integer> queue = ClearMpSogsMpsu.allCells(params, tier);
         for (int round = 0; !queue.isEmpty(); round++) {
             if (round >= params.getMaxPeelRounds()) {
                 return Result.fail("exceeds max peel rounds");
@@ -35,14 +34,14 @@ public class MpSogsEquivalenceChecker {
             List<MpSogsPeelResult> mpResults = new ArrayList<>(batchCells.size());
             List<MpSogsPeelResult> directResults = new ArrayList<>(batchCells.size());
             for (int cellIndex : batchCells) {
-                mpResults.add(ClearMpSogsUnionPeel.uPeel(mpSketches, cellIndex));
-                directResults.add(directSketch.localPeel(cellIndex));
+                mpResults.add(ClearMpSogsUnionPeel.uPeel(mpSketches, tier, cellIndex));
+                directResults.add(directSketch.localPeel(tier, cellIndex));
             }
             if (!mpResults.equals(directResults)) {
                 for (int index = 0; index < batchCells.size(); index++) {
                     if (!mpResults.get(index).equals(directResults.get(index))) {
                         return Result.fail("cell output mismatch at round " + round + ", cell "
-                            + batchCells.get(index) + ": mp=" + mpResults.get(index)
+                            + tier + "/" + batchCells.get(index) + ": mp=" + mpResults.get(index)
                             + ", direct=" + directResults.get(index));
                     }
                 }
@@ -54,6 +53,11 @@ public class MpSogsEquivalenceChecker {
             Set<Long> newlyOpened = new LinkedHashSet<>(distinctOpened);
             newlyOpened.removeAll(unionOutput);
             if (newlyOpened.isEmpty()) {
+                if (params.isTwoTier() && tier == MpSogsTier.MAIN && ClearMpSogsMpsu.hasResidual(mpSketches)) {
+                    tier = MpSogsTier.AUXILIARY;
+                    queue = ClearMpSogsMpsu.allCells(params, tier);
+                    continue;
+                }
                 break;
             }
             for (long value : newlyOpened) {
@@ -63,7 +67,7 @@ public class MpSogsEquivalenceChecker {
                 directSketch.deleteIfPresentOnce(value);
             }
             unionOutput.addAll(newlyOpened);
-            queue = ClearMpSogsMpsu.nextQueue(newlyOpened, params);
+            queue = ClearMpSogsMpsu.nextQueue(newlyOpened, params, tier);
         }
         if (!unionOutput.equals(union)) {
             return Result.fail("stalled before full union output");

@@ -26,7 +26,7 @@ public class DummySecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
     public BatchMpSogsPeelOutput peelBatch(BatchMpSogsPeelInput input) {
         List<MpSogsPeelResult> results = new ArrayList<>(input.size());
         for (int cellIndex : input.getCellIndexes()) {
-            results.add(ClearMpSogsUnionPeel.uPeel(sketches, cellIndex));
+            results.add(ClearMpSogsUnionPeel.uPeel(sketches, input.getTier(), cellIndex));
         }
         return new BatchMpSogsPeelOutput(results, 0L, 0L, 0);
     }

@@ -129,7 +129,7 @@ public class Abb3SecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         }
         for (int batchIndex = 0; batchIndex < input.size(); batchIndex++) {
             int cellIndex = input.getCellIndexes().get(batchIndex);
-            MpSogsLocalCellView view = localSketch.localCellView(cellIndex);
+            MpSogsLocalCellView view = localSketch.localCellView(input.getTier(), cellIndex);
             if (view.isSingleton()) {
                 vectors[SINGLETON_OFFSET].set(batchIndex, true);
                 setValueBits(vectors, batchIndex, view.getSingletonValue());

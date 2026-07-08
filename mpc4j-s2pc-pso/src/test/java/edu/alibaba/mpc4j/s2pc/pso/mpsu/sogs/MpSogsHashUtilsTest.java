@@ -46,6 +46,28 @@ public class MpSogsHashUtilsTest {
     }
 
     @Test
+    public void testTwoTierCellsInRange() {
+        MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(3, 128)
+            .setTwoTier(true)
+            .setAuxiliaryHashNum(3)
+            .setAuxiliaryCellNum(66)
+            .setHashSeed(12345L)
+            .build();
+        int[] mainCells = MpSogsHashUtils.cells(42L, params, MpSogsTier.MAIN);
+        int[] auxiliaryCells = MpSogsHashUtils.cells(42L, params, MpSogsTier.AUXILIARY);
+        Assert.assertEquals(params.getHashNum(MpSogsTier.MAIN), mainCells.length);
+        Assert.assertEquals(params.getHashNum(MpSogsTier.AUXILIARY), auxiliaryCells.length);
+        for (int cell : mainCells) {
+            Assert.assertTrue(cell >= 0);
+            Assert.assertTrue(cell < params.getCellNum(MpSogsTier.MAIN));
+        }
+        for (int cell : auxiliaryCells) {
+            Assert.assertTrue(cell >= 0);
+            Assert.assertTrue(cell < params.getCellNum(MpSogsTier.AUXILIARY));
+        }
+    }
+
+    @Test
     public void testCheckDeterministic() {
         Assert.assertEquals(MpSogsHashUtils.check(7L), MpSogsHashUtils.check(7L));
         Assert.assertNotEquals(MpSogsHashUtils.check(7L), MpSogsHashUtils.check(8L));

@@ -16,20 +16,36 @@ public class BatchMpSogsPeelInput {
      */
     private final int roundIndex;
     /**
+     * Public SOGS tier for this batch.
+     */
+    private final MpSogsTier tier;
+    /**
      * Ordered public cell indexes.
      */
     private final List<Integer> cellIndexes;
 
     public BatchMpSogsPeelInput(int roundIndex, List<Integer> cellIndexes) {
+        this(roundIndex, MpSogsTier.MAIN, cellIndexes);
+    }
+
+    public BatchMpSogsPeelInput(int roundIndex, MpSogsTier tier, List<Integer> cellIndexes) {
         if (roundIndex < 0) {
             throw new IllegalArgumentException("roundIndex must be non-negative");
         }
+        if (tier == null) {
+            throw new NullPointerException("tier");
+        }
         this.roundIndex = roundIndex;
+        this.tier = tier;
         this.cellIndexes = Collections.unmodifiableList(new ArrayList<>(cellIndexes));
     }
 
     public int getRoundIndex() {
         return roundIndex;
+    }
+
+    public MpSogsTier getTier() {
+        return tier;
     }
 
     public List<Integer> getCellIndexes() {

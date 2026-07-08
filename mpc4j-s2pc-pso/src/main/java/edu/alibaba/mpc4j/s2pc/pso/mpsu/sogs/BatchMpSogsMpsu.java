@@ -5,9 +5,7 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 /**
  * MP-SOGS MPSU driver over a batch union-peel primitive.
@@ -42,9 +40,8 @@ public class BatchMpSogsMpsu {
         }
         Set<Long> unionOutput = new LinkedHashSet<>();
         List<MpSogsRoundStats> stats = new ArrayList<>();
-        Set<Integer> queue = IntStream.range(0, params.getCellNum())
-            .boxed()
-            .collect(Collectors.toCollection(TreeSet::new));
+        MpSogsTier tier = MpSogsTier.MAIN;
+        Set<Integer> queue = ClearMpSogsMpsu.allCells(params, tier);
         String failureReason = "";
         for (int round = 0; !queue.isEmpty(); round++) {
             if (round >= params.getMaxPeelRounds()) {
@@ -52,7 +49,7 @@ public class BatchMpSogsMpsu {
                 break;
             }
             List<Integer> batchCells = new ArrayList<>(queue);
-            BatchMpSogsPeelOutput output = unionPeel.peelBatch(new BatchMpSogsPeelInput(round, batchCells));
+            BatchMpSogsPeelOutput output = unionPeel.peelBatch(new BatchMpSogsPeelInput(round, tier, batchCells));
             if (output.getResults().size() != batchCells.size()) {
                 throw new IllegalStateException("union-peel output size must match input size");
             }
@@ -76,11 +73,16 @@ public class BatchMpSogsMpsu {
                 output.getRoundCount()
             ));
             if (newlyOpened.isEmpty()) {
+                if (params.isTwoTier() && tier == MpSogsTier.MAIN && ClearMpSogsMpsu.hasResidual(sketches)) {
+                    tier = MpSogsTier.AUXILIARY;
+                    queue = ClearMpSogsMpsu.allCells(params, tier);
+                    continue;
+                }
                 break;
             }
             deleteOpenedValues(sketches, newlyOpened);
             unionOutput.addAll(newlyOpened);
-            queue = ClearMpSogsMpsu.nextQueue(newlyOpened, params);
+            queue = ClearMpSogsMpsu.nextQueue(newlyOpened, params, tier);
         }
         boolean success = unionOutput.equals(expectedUnion);
         if (!success && failureReason.isEmpty()) {

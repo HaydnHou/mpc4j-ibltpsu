@@ -13,6 +13,7 @@ import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsMpsuParams;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsPeelResult;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsRoundStats;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsSketch;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsTier;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsTranscript;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.SecureMpSogsUnionPeel;
 import edu.alibaba.mpc4j.s3pc.abb3.basic.core.z2.TripletZ2cParty;
@@ -151,7 +152,8 @@ public class Abb3MpSogsMpsuPartyRunner {
         SecureMpSogsUnionPeel unionPeel = new Abb3SecureMpSogsUnionPeel(z2cParty, localSketch, params);
         Set<Long> unionOutput = new LinkedHashSet<>();
         List<MpSogsRoundStats> stats = new ArrayList<>();
-        int[] queue = allCells(params.getCellNum());
+        MpSogsTier tier = MpSogsTier.MAIN;
+        int[] queue = allCells(params.getCellNum(tier));
         String failureReason = "";
         boolean residualChecked = false;
         for (int round = 0; queue.length > 0; round++) {
@@ -159,7 +161,7 @@ public class Abb3MpSogsMpsuPartyRunner {
                 failureReason = "exceeds max peel rounds";
                 break;
             }
-            PeelRoundOutput output = peelQueueInChunks(unionPeel, round, queue, unionOutput);
+            PeelRoundOutput output = peelQueueInChunks(unionPeel, round, tier, queue, unionOutput);
             Set<Long> newlyOpened = output.newlyOpened;
             int duplicateOpenings = output.openedBatchSize - newlyOpened.size();
             stats.add(new MpSogsRoundStats(
@@ -167,6 +169,11 @@ public class Abb3MpSogsMpsuPartyRunner {
                 output.sendBytes, output.receiveBytes, output.networkRoundCount
             ));
             if (newlyOpened.isEmpty()) {
+                if (params.isTwoTier() && tier == MpSogsTier.MAIN && openAnyResidual(localSketch)) {
+                    tier = MpSogsTier.AUXILIARY;
+                    queue = allCells(params.getCellNum(tier));
+                    continue;
+                }
                 residualChecked = true;
                 if (openAnyResidual(localSketch)) {
                     failureReason = "stalled before all residual elements were peeled";
@@ -174,7 +181,7 @@ public class Abb3MpSogsMpsuPartyRunner {
                 break;
             }
             newlyOpened.forEach(localSketch::deleteIfPresentOnce);
-            queue = nextQueueArray(newlyOpened, params);
+            queue = nextQueueArray(newlyOpened, params, tier);
         }
         if (failureReason.isEmpty() && !residualChecked && openAnyResidual(localSketch)) {
             failureReason = "queue exhausted before all residual elements were peeled";
@@ -189,13 +196,14 @@ public class Abb3MpSogsMpsuPartyRunner {
         return new MpSogsTranscript(unionOutput, stats, success, failureReason);
     }
 
-    private PeelRoundOutput peelQueueInChunks(SecureMpSogsUnionPeel unionPeel, int round, int[] batchCells,
+    private PeelRoundOutput peelQueueInChunks(SecureMpSogsUnionPeel unionPeel, int round, MpSogsTier tier,
+                                              int[] batchCells,
                                               Set<Long> unionOutput) throws MpcAbortException {
         int maxBatchCells = config.getMaxBatchCells();
         if (batchCells.length <= maxBatchCells) {
             long sendBytesBefore = z2cParty.getRpc().getSendByteLength();
             BatchMpSogsPeelOutput output = unionPeel.peelBatch(new BatchMpSogsPeelInput(
-                round, toCellList(batchCells, 0, batchCells.length)
+                round, tier, toCellList(batchCells, 0, batchCells.length)
             ));
             long sendBytes = Math.max(0L, z2cParty.getRpc().getSendByteLength() - sendBytesBefore);
             return absorbResults(output, unionOutput, sendBytes);
@@ -209,7 +217,7 @@ public class Abb3MpSogsMpsuPartyRunner {
             int to = Math.min(batchCells.length, from + maxBatchCells);
             List<Integer> chunkCells = toCellList(batchCells, from, to);
             long sendBytesBefore = z2cParty.getRpc().getSendByteLength();
-            BatchMpSogsPeelOutput output = unionPeel.peelBatch(new BatchMpSogsPeelInput(round, chunkCells));
+            BatchMpSogsPeelOutput output = unionPeel.peelBatch(new BatchMpSogsPeelInput(round, tier, chunkCells));
             sendBytes += Math.max(0L, z2cParty.getRpc().getSendByteLength() - sendBytesBefore);
             receiveBytes += output.getReceiveBytes();
             networkRoundCount += output.getRoundCount();
@@ -253,14 +261,14 @@ public class Abb3MpSogsMpsuPartyRunner {
         return result;
     }
 
-    private static int[] nextQueueArray(Set<Long> newlyOpened, MpSogsMpsuParams params) {
+    private static int[] nextQueueArray(Set<Long> newlyOpened, MpSogsMpsuParams params, MpSogsTier tier) {
         if (newlyOpened.isEmpty()) {
             return new int[0];
         }
-        int[] nextQueue = new int[Math.multiplyExact(newlyOpened.size(), params.getHashNum())];
+        int[] nextQueue = new int[Math.multiplyExact(newlyOpened.size(), params.getHashNum(tier))];
         int size = 0;
         for (long value : newlyOpened) {
-            for (int cellIndex : MpSogsHashUtils.cells(value, params)) {
+            for (int cellIndex : MpSogsHashUtils.cells(value, params, tier)) {
                 nextQueue[size++] = cellIndex;
             }
         }
@@ -284,6 +292,9 @@ public class Abb3MpSogsMpsuPartyRunner {
         return new MpSogsMpsuParams.Builder(params.getPartyNum(), params.getTauMax())
             .setAlpha(params.getAlpha())
             .setHashNum(params.getHashNum())
+            .setTwoTier(params.isTwoTier())
+            .setAuxiliaryHashNum(params.getAuxiliaryHashNum())
+            .setAuxiliaryCellNum(params.getAuxiliaryCellNum())
             .setHashSeed(params.getHashSeed() + HASH_SEED_RETRY_STRIDE * retryIndex)
             .setMaxPeelRounds(params.getMaxPeelRounds())
             .build();

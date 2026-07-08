@@ -15,12 +15,16 @@ public class ClearMpSogsUnionPeel {
     }
 
     public static MpSogsPeelResult uPeel(List<MpSogsSketch> sketches, int cellIndex) {
+        return uPeel(sketches, MpSogsTier.MAIN, cellIndex);
+    }
+
+    public static MpSogsPeelResult uPeel(List<MpSogsSketch> sketches, MpSogsTier tier, int cellIndex) {
         if (sketches.isEmpty()) {
             throw new IllegalArgumentException("sketches must be non-empty");
         }
         return MpSogsUnionPeelFunction.evaluate(
             sketches.stream()
-                .map(sketch -> sketch.localCellView(cellIndex))
+                .map(sketch -> sketch.localCellView(tier, cellIndex))
                 .collect(Collectors.toList())
         );
     }

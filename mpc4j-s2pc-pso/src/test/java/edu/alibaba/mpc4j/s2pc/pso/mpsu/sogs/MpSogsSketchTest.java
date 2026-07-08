@@ -40,6 +40,30 @@ public class MpSogsSketchTest {
     }
 
     @Test
+    public void testTwoTierInsertAndDelete() {
+        MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(3, 64)
+            .setTwoTier(true)
+            .setAuxiliaryCellNum(66)
+            .build();
+        MpSogsSketch sketch = MpSogsSketch.encode(Collections.singleton(23L), params);
+        for (int cell : MpSogsHashUtils.cells(23L, params, MpSogsTier.MAIN)) {
+            Assert.assertEquals(MpSogsCellState.SINGLETON, sketch.state(MpSogsTier.MAIN, cell));
+            Assert.assertEquals(23L, sketch.singletonValue(MpSogsTier.MAIN, cell));
+        }
+        for (int cell : MpSogsHashUtils.cells(23L, params, MpSogsTier.AUXILIARY)) {
+            Assert.assertEquals(MpSogsCellState.SINGLETON, sketch.state(MpSogsTier.AUXILIARY, cell));
+            Assert.assertEquals(23L, sketch.singletonValue(MpSogsTier.AUXILIARY, cell));
+        }
+        Assert.assertTrue(sketch.deleteIfPresentOnce(23L));
+        for (int cell : MpSogsHashUtils.cells(23L, params, MpSogsTier.MAIN)) {
+            Assert.assertEquals(MpSogsCellState.EMPTY, sketch.state(MpSogsTier.MAIN, cell));
+        }
+        for (int cell : MpSogsHashUtils.cells(23L, params, MpSogsTier.AUXILIARY)) {
+            Assert.assertEquals(MpSogsCellState.EMPTY, sketch.state(MpSogsTier.AUXILIARY, cell));
+        }
+    }
+
+    @Test
     public void testCellHeavyState() {
         MpSogsCell cell = new MpSogsCell();
         cell.add(5L);

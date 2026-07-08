@@ -87,7 +87,7 @@ public class ShamirSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         long[] values = new long[input.size() * INPUTS_PER_CELL];
         for (int batchIndex = 0; batchIndex < input.size(); batchIndex++) {
             int cellIndex = input.getCellIndexes().get(batchIndex);
-            MpSogsLocalCellView view = localSketch.localCellView(cellIndex);
+            MpSogsLocalCellView view = localSketch.localCellView(input.getTier(), cellIndex);
             int base = batchIndex * INPUTS_PER_CELL;
             if (view.isSingleton()) {
                 values[base + SINGLETON_OFFSET] = 1L;

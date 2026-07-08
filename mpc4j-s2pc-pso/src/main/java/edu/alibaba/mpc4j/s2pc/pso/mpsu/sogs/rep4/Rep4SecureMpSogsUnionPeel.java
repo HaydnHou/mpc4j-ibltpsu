@@ -84,7 +84,7 @@ public class Rep4SecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         long[][] valueBits = new long[ELEMENT_BITS][blockNum];
         for (int batchIndex = 0; batchIndex < input.size(); batchIndex++) {
             int cellIndex = input.getCellIndexes().get(batchIndex);
-            MpSogsLocalCellView view = localSketch.localCellView(cellIndex);
+            MpSogsLocalCellView view = localSketch.localCellView(input.getTier(), cellIndex);
             if (view.isSingleton()) {
                 setLane(singleton, batchIndex);
                 long value = view.getSingletonValue();

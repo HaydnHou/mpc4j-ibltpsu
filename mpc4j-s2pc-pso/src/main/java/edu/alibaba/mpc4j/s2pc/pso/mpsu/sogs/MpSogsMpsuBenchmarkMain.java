@@ -60,6 +60,9 @@ public class MpSogsMpsuBenchmarkMain {
         MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(config.partyNum, config.tauMax(expectedUnion.size()))
             .setAlpha(config.alpha)
             .setHashNum(config.hashNum)
+            .setTwoTier(config.twoTier)
+            .setAuxiliaryHashNum(config.auxiliaryHashNum)
+            .setAuxiliaryCellNum(config.auxiliaryCellNum)
             .setHashSeed(config.hashSeed + trialIndex)
             .setMaxPeelRounds(config.maxPeelRounds)
             .build();
@@ -241,6 +244,9 @@ public class MpSogsMpsuBenchmarkMain {
         private double commonOverlap = 0.5;
         private double alpha = MpSogsMpsuParams.DEFAULT_ALPHA;
         private int hashNum = MpSogsMpsuParams.DEFAULT_HASH_NUM;
+        private boolean twoTier = false;
+        private int auxiliaryHashNum = MpSogsMpsuParams.DEFAULT_HASH_NUM;
+        private int auxiliaryCellNum = MpSogsMpsuParams.DEFAULT_AUXILIARY_CELL_NUM;
         private long hashSeed = MpSogsMpsuParams.DEFAULT_HASH_SEED;
         private int maxPeelRounds = 10_000;
         private int trials = 1;
@@ -278,6 +284,20 @@ public class MpSogsMpsuBenchmarkMain {
                     case "k":
                     case "hashnum":
                         config.hashNum = Integer.parseInt(value);
+                        break;
+                    case "twotier":
+                    case "two_tier":
+                        config.twoTier = Boolean.parseBoolean(value);
+                        break;
+                    case "auxk":
+                    case "auxiliaryhashnum":
+                    case "auxiliary_hash_num":
+                        config.auxiliaryHashNum = Integer.parseInt(value);
+                        break;
+                    case "auxiliarycellnum":
+                    case "auxiliary_cell_num":
+                    case "auxiliarycells":
+                        config.auxiliaryCellNum = Integer.parseInt(value);
                         break;
                     case "hashseed":
                         config.hashSeed = Long.parseLong(value);
@@ -367,7 +387,8 @@ public class MpSogsMpsuBenchmarkMain {
         }
 
         private static String csvHeader() {
-            return "trial,party,n,union_size,overlap,alpha,k,max_hash_seed_retries,max_batch_cells,"
+            return "trial,party,n,union_size,overlap,alpha,k,two_tier,aux_k,aux_cells,"
+                + "max_hash_seed_retries,max_batch_cells,"
                 + "cr_buffer_byte_size,hash_seed_attempts,success,"
                 + "rounds,upeel_calls,send_bytes,time_ms,failure_reason";
         }
@@ -413,6 +434,9 @@ public class MpSogsMpsuBenchmarkMain {
                 + result.config.commonOverlap + ","
                 + result.config.alpha + ","
                 + result.config.hashNum + ","
+                + result.config.twoTier + ","
+                + result.config.auxiliaryHashNum + ","
+                + result.config.auxiliaryCellNum + ","
                 + result.config.maxHashSeedRetries + ","
                 + result.config.maxBatchCells + ","
                 + result.config.crBufferByteSize + ","
