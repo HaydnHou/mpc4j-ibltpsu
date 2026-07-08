@@ -85,6 +85,26 @@ public class SogsGraphParams {
         return new SogsGraphParams(expectedItemSize, vertexCount, degree, SogsGraphLayout.SUBTABLE, seed);
     }
 
+    /**
+     * Creates parameters from a fixed vertex count.
+     *
+     * <p>This is used by fixed auxiliary layers. The vertex count is public and independent of the concrete item set, so it
+     * can be used without changing the protocol transcript shape.</p>
+     *
+     * @param expectedItemSize expected item count.
+     * @param vertexCount      fixed vertex count.
+     * @param degree           edge degree.
+     * @param seed             seed.
+     * @return parameters.
+     */
+    public static SogsGraphParams fromFixedVertexCount(int expectedItemSize, int vertexCount, int degree, long seed) {
+        if (degree < 2) {
+            throw new IllegalArgumentException("degree must be at least 2: " + degree);
+        }
+        int fixedVertexCount = roundUp(vertexCount, degree);
+        return new SogsGraphParams(expectedItemSize, fixedVertexCount, degree, SogsGraphLayout.SUBTABLE, seed);
+    }
+
     private static int roundUp(int value, int factor) {
         long result = ((long) value + factor - 1) / factor * factor;
         if (result > Integer.MAX_VALUE) {

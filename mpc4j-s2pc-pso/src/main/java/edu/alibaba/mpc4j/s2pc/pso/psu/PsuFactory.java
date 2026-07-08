@@ -15,9 +15,11 @@ import edu.alibaba.mpc4j.s2pc.pso.psu.iblt.IbltPsuConfig;
 import edu.alibaba.mpc4j.s2pc.pso.psu.iblt.IbltPsuServer;
 import edu.alibaba.mpc4j.s2pc.pso.psu.jsz22.*;
 import edu.alibaba.mpc4j.s2pc.pso.psu.krtw19.*;
-import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.SogsPsuClient;
 import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.SogsPsuConfig;
-import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.SogsPsuServer;
+import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.balanced.BalancedSogsPsuClient;
+import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.balanced.BalancedSogsPsuServer;
+import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.unbalanced.ReusableSogsPsuClient;
+import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.unbalanced.ReusableSogsPsuServer;
 import edu.alibaba.mpc4j.s2pc.pso.psu.zcl23.*;
 
 /**
@@ -105,7 +107,7 @@ public class PsuFactory implements PtoFactory {
             case IBLT:
                 return new IbltPsuServer(serverRpc, clientParty, (IbltPsuConfig) config);
             case SOGS:
-                return new SogsPsuServer(serverRpc, clientParty, (SogsPsuConfig) config);
+                return createSogsServer(serverRpc, clientParty, (SogsPsuConfig) config);
             default:
                 throw new IllegalArgumentException("Invalid " + PsuType.class.getSimpleName() + ": " + type.name());
         }
@@ -180,7 +182,7 @@ public class PsuFactory implements PtoFactory {
             case IBLT:
                 return new IbltPsuClient(clientRpc, serverParty, (IbltPsuConfig) config);
             case SOGS:
-                return new SogsPsuClient(clientRpc, serverParty, (SogsPsuConfig) config);
+                return createSogsClient(clientRpc, serverParty, (SogsPsuConfig) config);
             default:
                 throw new IllegalArgumentException("Invalid " + PsuType.class.getSimpleName() + ": " + type.name());
         }
@@ -237,6 +239,28 @@ public class PsuFactory implements PtoFactory {
             case MALICIOUS:
             default:
                 throw new IllegalArgumentException("Invalid " + SecurityModel.class.getSimpleName() + ": " + securityModel.name());
+        }
+    }
+
+    private static PsuServer createSogsServer(Rpc serverRpc, Party clientParty, SogsPsuConfig config) {
+        switch (config.getProfile()) {
+            case BALANCED:
+                return new BalancedSogsPsuServer(serverRpc, clientParty, config);
+            case UNBALANCED_REUSABLE:
+                return new ReusableSogsPsuServer(serverRpc, clientParty, config);
+            default:
+                throw new IllegalArgumentException("Invalid SOGS profile: " + config.getProfile());
+        }
+    }
+
+    private static PsuClient createSogsClient(Rpc clientRpc, Party serverParty, SogsPsuConfig config) {
+        switch (config.getProfile()) {
+            case BALANCED:
+                return new BalancedSogsPsuClient(clientRpc, serverParty, config);
+            case UNBALANCED_REUSABLE:
+                return new ReusableSogsPsuClient(clientRpc, serverParty, config);
+            default:
+                throw new IllegalArgumentException("Invalid SOGS profile: " + config.getProfile());
         }
     }
 }

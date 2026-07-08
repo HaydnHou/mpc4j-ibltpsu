@@ -6,6 +6,7 @@ import edu.alibaba.mpc4j.s2pc.pso.PsoUtils;
 import edu.alibaba.mpc4j.s2pc.pso.main.psu.PsuConfigUtils;
 import edu.alibaba.mpc4j.s2pc.pso.main.psu.PsuMain;
 import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.SogsPsuConfig;
+import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.SogsPsuProfile;
 import org.apache.commons.lang3.time.StopWatch;
 import org.junit.Assert;
 import org.junit.Test;
@@ -44,6 +45,19 @@ public class SogsPsuTest extends AbstractTwoPartyMemoryRpcPto {
     }
 
     @Test
+    public void testTwoTier() {
+        SogsPsuConfig config = new SogsPsuConfig.Builder()
+            .setSogsDegree(3)
+            .setSogsAlpha(1.25)
+            .setTwoTier(true)
+            .setAuxiliaryDegree(3)
+            .setAuxiliaryVertexCount(4098)
+            .build();
+        ArrayList<Set<ByteBuffer>> sets = PsoUtils.generateBytesSets(64, 64, DEFAULT_ELEMENT_BYTE_LENGTH);
+        testPto(sets.get(0), sets.get(1), DEFAULT_ELEMENT_BYTE_LENGTH, false, config);
+    }
+
+    @Test
     public void testZeroElement() {
         int elementByteLength = DEFAULT_ELEMENT_BYTE_LENGTH;
         Set<ByteBuffer> serverSet = new HashSet<>();
@@ -68,14 +82,22 @@ public class SogsPsuTest extends AbstractTwoPartyMemoryRpcPto {
     public void testCreateConfig() {
         Properties properties = new Properties();
         properties.setProperty(PsuMain.PTO_NAME_KEY, PsuFactory.PsuType.SOGS.name());
+        properties.setProperty(PsuConfigUtils.SOGS_PROFILE, SogsPsuProfile.BALANCED.name());
         properties.setProperty(PsuConfigUtils.SOGS_ALPHA, "1.25");
         properties.setProperty(PsuConfigUtils.SOGS_DEGREE, "3");
+        properties.setProperty(PsuConfigUtils.SOGS_TWO_TIER, "true");
+        properties.setProperty(PsuConfigUtils.SOGS_AUXILIARY_DEGREE, "3");
+        properties.setProperty(PsuConfigUtils.SOGS_AUXILIARY_VERTEX_COUNT, "4098");
         PsuConfig config = PsuConfigUtils.createConfig(properties);
         Assert.assertEquals(PsuFactory.PsuType.SOGS, config.getPtoType());
         Assert.assertTrue(config instanceof SogsPsuConfig);
         SogsPsuConfig sogsConfig = (SogsPsuConfig) config;
+        Assert.assertEquals(SogsPsuProfile.BALANCED, sogsConfig.getProfile());
         Assert.assertEquals(1.25, sogsConfig.getSogsAlpha(), 0.0);
         Assert.assertEquals(3, sogsConfig.getSogsDegree());
+        Assert.assertTrue(sogsConfig.isTwoTier());
+        Assert.assertEquals(3, sogsConfig.getAuxiliaryDegree());
+        Assert.assertEquals(4098, sogsConfig.getAuxiliaryVertexCount());
     }
 
     private void testPto(int serverSize, int clientSize, int elementByteLength, boolean parallel) {
@@ -89,6 +111,11 @@ public class SogsPsuTest extends AbstractTwoPartyMemoryRpcPto {
             .setSogsDegree(3)
             .setSogsAlpha(1.45)
             .build();
+        testPto(serverSet, clientSet, elementByteLength, parallel, config);
+    }
+
+    private void testPto(Set<ByteBuffer> serverSet, Set<ByteBuffer> clientSet,
+                         int elementByteLength, boolean parallel, SogsPsuConfig config) {
         PsuServer server = PsuFactory.createServer(firstRpc, secondRpc.ownParty(), config);
         PsuClient client = PsuFactory.createClient(secondRpc, firstRpc.ownParty(), config);
         server.setParallel(parallel);

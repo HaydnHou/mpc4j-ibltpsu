@@ -11,7 +11,7 @@ import edu.alibaba.mpc4j.common.rpc.desc.PtoDescManager;
  * @author donghai hou
  * @date 2026/06/09
  */
-class SogsPsuPtoDesc implements PtoDesc {
+public class SogsPsuPtoDesc implements PtoDesc {
     /**
      * protocol ID.
      */
@@ -42,6 +42,14 @@ class SogsPsuPtoDesc implements PtoDesc {
          */
         CLIENT_SEND_PEELED_ELEMENTS,
         /**
+         * client sends whether its remaining set is empty at a two-tier phase boundary.
+         */
+        CLIENT_SEND_PHASE_STATUS,
+        /**
+         * server sends whether to finish or enter auxiliary phase.
+         */
+        SERVER_SEND_PHASE_DECISION,
+        /**
          * server sends finish status.
          */
         SERVER_SEND_FINISH,
@@ -64,7 +72,7 @@ class SogsPsuPtoDesc implements PtoDesc {
      *
      * @return the singleton instance.
      */
-    static PtoDesc getInstance() {
+    public static PtoDesc getInstance() {
         return INSTANCE;
     }
 

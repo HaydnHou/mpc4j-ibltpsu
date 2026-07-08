@@ -33,6 +33,22 @@ public class SogsPsuConfig extends AbstractMultiPartyPtoConfig implements PsuCon
      * SOGS graph degree.
      */
     private final int sogsDegree;
+    /**
+     * SOGS-PSU execution profile.
+     */
+    private final SogsPsuProfile profile;
+    /**
+     * Whether to enable two-tier SOGS. This is intended for all-output PSU only.
+     */
+    private final boolean twoTier;
+    /**
+     * Auxiliary graph degree.
+     */
+    private final int auxiliaryDegree;
+    /**
+     * Fixed auxiliary vertex count.
+     */
+    private final int auxiliaryVertexCount;
 
     private SogsPsuConfig(Builder builder) {
         super(SecurityModel.SEMI_HONEST, builder.mpOprfConfig, builder.coreCotConfig);
@@ -40,6 +56,10 @@ public class SogsPsuConfig extends AbstractMultiPartyPtoConfig implements PsuCon
         coreCotConfig = builder.coreCotConfig;
         sogsAlpha = builder.sogsAlpha;
         sogsDegree = builder.sogsDegree;
+        profile = builder.profile;
+        twoTier = builder.twoTier;
+        auxiliaryDegree = builder.auxiliaryDegree;
+        auxiliaryVertexCount = builder.auxiliaryVertexCount;
     }
 
     @Override
@@ -63,6 +83,22 @@ public class SogsPsuConfig extends AbstractMultiPartyPtoConfig implements PsuCon
         return sogsDegree;
     }
 
+    public SogsPsuProfile getProfile() {
+        return profile;
+    }
+
+    public boolean isTwoTier() {
+        return twoTier;
+    }
+
+    public int getAuxiliaryDegree() {
+        return auxiliaryDegree;
+    }
+
+    public int getAuxiliaryVertexCount() {
+        return auxiliaryVertexCount;
+    }
+
     /**
      * Builder.
      */
@@ -83,12 +119,32 @@ public class SogsPsuConfig extends AbstractMultiPartyPtoConfig implements PsuCon
          * SOGS graph degree.
          */
         private int sogsDegree;
+        /**
+         * SOGS-PSU execution profile.
+         */
+        private SogsPsuProfile profile;
+        /**
+         * Whether to enable two-tier SOGS.
+         */
+        private boolean twoTier;
+        /**
+         * Auxiliary graph degree.
+         */
+        private int auxiliaryDegree;
+        /**
+         * Fixed auxiliary vertex count.
+         */
+        private int auxiliaryVertexCount;
 
         public Builder() {
             mpOprfConfig = new Rs21MpOprfConfig.Builder(SecurityModel.SEMI_HONEST).build();
             coreCotConfig = CoreCotFactory.createDefaultConfig(SecurityModel.SEMI_HONEST);
             sogsAlpha = 1.25;
             sogsDegree = 3;
+            profile = SogsPsuProfile.BALANCED;
+            twoTier = false;
+            auxiliaryDegree = 3;
+            auxiliaryVertexCount = 4098;
         }
 
         public Builder setMpOprfConfig(MpOprfConfig mpOprfConfig) {
@@ -114,8 +170,31 @@ public class SogsPsuConfig extends AbstractMultiPartyPtoConfig implements PsuCon
             return this;
         }
 
+        public Builder setProfile(SogsPsuProfile profile) {
+            this.profile = Preconditions.checkNotNull(profile);
+            return this;
+        }
+
+        public Builder setTwoTier(boolean twoTier) {
+            this.twoTier = twoTier;
+            return this;
+        }
+
+        public Builder setAuxiliaryDegree(int auxiliaryDegree) {
+            Preconditions.checkArgument(auxiliaryDegree >= 2);
+            this.auxiliaryDegree = auxiliaryDegree;
+            return this;
+        }
+
+        public Builder setAuxiliaryVertexCount(int auxiliaryVertexCount) {
+            Preconditions.checkArgument(auxiliaryVertexCount > 0);
+            this.auxiliaryVertexCount = auxiliaryVertexCount;
+            return this;
+        }
+
         @Override
         public SogsPsuConfig build() {
+            Preconditions.checkArgument(auxiliaryVertexCount % auxiliaryDegree == 0);
             return new SogsPsuConfig(this);
         }
     }

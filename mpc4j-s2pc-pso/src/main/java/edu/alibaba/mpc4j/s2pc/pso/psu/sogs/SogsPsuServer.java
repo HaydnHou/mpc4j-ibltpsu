@@ -51,9 +51,13 @@ public class SogsPsuServer extends AbstractPsuServer {
      */
     private byte[] sketchKey;
     /**
-     * server element sketch.
+     * server main element sketch.
      */
-    private SogsPsuSketchBackend serverSketch;
+    private SogsPsuSketchBackend serverMainSketch;
+    /**
+     * server fixed auxiliary element sketch.
+     */
+    private SogsPsuSketchBackend serverAuxiliarySketch;
     /**
      * server elements indexed by byte representation.
      */
@@ -118,7 +122,8 @@ public class SogsPsuServer extends AbstractPsuServer {
         logStepInfo(PtoState.PTO_STEP, 2, 2, peelTime, "Server runs SOGS union peel");
 
         mpOprfSenderOutput = null;
-        serverSketch = null;
+        serverMainSketch = null;
+        serverAuxiliarySketch = null;
         this.serverElementSet = null;
         serverRemainSet = null;
         logPhaseInfo(PtoState.PTO_END);
@@ -127,7 +132,14 @@ public class SogsPsuServer extends AbstractPsuServer {
     private void initProtocolState(Set<ByteBuffer> inputServerElementSet) {
         sketchKey = BlockUtils.randomBlock(secureRandom);
         int threshold = Math.addExact(serverElementSize, clientElementSize);
-        serverSketch = SogsPsuUtils.createSketchBackend(config, threshold, elementByteLength, sketchKey);
+        serverMainSketch = SogsPsuUtils.createMainSketchBackend(config, threshold, elementByteLength, sketchKey);
+        if (config.isTwoTier()) {
+            serverAuxiliarySketch = SogsPsuUtils.createAuxiliarySketchBackend(
+                config, threshold, elementByteLength, sketchKey
+            );
+        } else {
+            serverAuxiliarySketch = null;
+        }
         serverElementSet = new HashSet<>(serverElementSize);
         serverRemainSet = new HashSet<>(serverElementSize);
         for (ByteBuffer element : inputServerElementSet) {
@@ -135,7 +147,11 @@ public class SogsPsuServer extends AbstractPsuServer {
             ByteBuffer elementBuffer = ByteBuffer.wrap(elementBytes);
             serverElementSet.add(elementBuffer);
             serverRemainSet.add(ByteBuffer.wrap(BytesUtils.clone(elementBytes)));
-            serverSketch.add(SogsPsuUtils.elementKey(envType, elementBytes), elementBytes);
+            long key = SogsPsuUtils.elementKey(envType, elementBytes);
+            serverMainSketch.add(key, elementBytes);
+            if (config.isTwoTier()) {
+                serverAuxiliarySketch.add(key, elementBytes);
+            }
         }
     }
 
@@ -150,26 +166,40 @@ public class SogsPsuServer extends AbstractPsuServer {
     }
 
     private void runUnionPeel() throws MpcAbortException {
-        boolean[] peeled = new boolean[serverSketch.tableSize()];
-        int maxRound = Math.max(1, serverSketch.tableSize());
+        PeelPhase phase = PeelPhase.MAIN;
+        boolean[] mainPeeled = new boolean[serverMainSketch.tableSize()];
+        boolean[] auxiliaryPeeled = config.isTwoTier() ? new boolean[serverAuxiliarySketch.tableSize()] : null;
+        int maxRound = Math.max(
+            1, serverMainSketch.tableSize() + (config.isTwoTier() ? serverAuxiliarySketch.tableSize() : 0)
+        );
         long nextExtraInfo = extraInfo;
         try {
-            int[] probeIndexes = SogsPsuUtils.allUnpeeledPositions(peeled);
+            int[] probeIndexes = SogsPsuUtils.allUnpeeledPositions(mainPeeled);
             for (int round = 0; round <= maxRound; round++) {
                 long roundExtraInfo = nextExtraInfo++;
                 if (probeIndexes.length == 0) {
-                    sendFinish(roundExtraInfo);
-                    return;
+                    PhaseBoundaryResult boundary = handlePhaseBoundary(roundExtraInfo, phase);
+                    if (boundary == PhaseBoundaryResult.FINISH) {
+                        return;
+                    }
+                    phase = PeelPhase.AUXILIARY;
+                    probeIndexes = SogsPsuUtils.allUnpeeledPositions(auxiliaryPeeled);
+                    continue;
                 }
-                byte[][] clientSingletonElements = receiveClientSingletonElements(roundExtraInfo, probeIndexes);
-                sendUnionPeelMessages(roundExtraInfo, round, probeIndexes, clientSingletonElements);
+                byte[][] clientSingletonElements = receiveClientSingletonElements(roundExtraInfo, phase, probeIndexes);
+                sendUnionPeelMessages(roundExtraInfo, round, phase, probeIndexes, clientSingletonElements);
                 List<byte[]> peeledPayload = receivePeeledElements(roundExtraInfo);
                 if (peeledPayload.isEmpty()) {
-                    sendFinish(roundExtraInfo);
-                    return;
+                    PhaseBoundaryResult boundary = handlePhaseBoundary(roundExtraInfo, phase);
+                    if (boundary == PhaseBoundaryResult.FINISH) {
+                        return;
+                    }
+                    phase = PeelPhase.AUXILIARY;
+                    probeIndexes = SogsPsuUtils.allUnpeeledPositions(auxiliaryPeeled);
+                    continue;
                 }
-                handlePeeledElements(peeledPayload, peeled);
-                probeIndexes = nextProbeIndexes(peeledPayload, peeled);
+                handlePeeledElements(peeledPayload, mainPeeled, auxiliaryPeeled);
+                probeIndexes = nextProbeIndexes(phase, peeledPayload, activePeeled(phase, mainPeeled, auxiliaryPeeled));
             }
             throw new MpcAbortException("SOGS union peel exceeds the maximum round number");
         } finally {
@@ -177,9 +207,10 @@ public class SogsPsuServer extends AbstractPsuServer {
         }
     }
 
-    private byte[][] receiveClientSingletonElements(long roundExtraInfo, int[] probeIndexes) throws MpcAbortException {
+    private byte[][] receiveClientSingletonElements(long roundExtraInfo, PeelPhase phase, int[] probeIndexes)
+        throws MpcAbortException {
         int probeNum = probeIndexes.length;
-        int[] counts = serverSketch.counts();
+        int[] counts = activeSketch(phase).counts();
         boolean[] choices = new boolean[probeNum];
         for (int i = 0; i < probeNum; i++) {
             choices[i] = counts[probeIndexes[i]] == 0;
@@ -195,27 +226,29 @@ public class SogsPsuServer extends AbstractPsuServer {
         );
     }
 
-    private void sendUnionPeelMessages(long roundExtraInfo, int round, int[] probeIndexes,
+    private void sendUnionPeelMessages(long roundExtraInfo, int round, PeelPhase phase, int[] probeIndexes,
                                        byte[][] clientSingletonElements)
         throws MpcAbortException {
         int probeNum = probeIndexes.length;
         MathPreconditions.checkEqual(
             "clientSingletonElements.length", "probeNum", clientSingletonElements.length, probeNum
         );
-        int[] counts = serverSketch.counts();
-        boolean[] pureSingletons = serverSketch.pureSingletons();
-        byte[][] values = serverSketch.valueSums();
+        SogsPsuSketchBackend activeSketch = activeSketch(phase);
+        int[] counts = activeSketch.counts();
+        boolean[] pureSingletons = activeSketch.pureSingletons();
+        byte[][] values = activeSketch.valueSums();
         int messageByteLength = Math.max(Byte.BYTES + elementByteLength, CommonConstants.BLOCK_BYTE_LENGTH);
         byte[][] message0 = new byte[probeNum][messageByteLength];
         byte[][] message1 = new byte[probeNum][messageByteLength];
         for (int i = 0; i < probeNum; i++) {
             int index = probeIndexes[i];
+            int globalIndex = toGlobalIndex(phase, index);
             if (counts[index] == 1 && pureSingletons[index]) {
                 message0[i] = SogsPsuUtils.pad(
                     SogsPsuUtils.encodeOptionalElement(values[index], elementByteLength), messageByteLength
                 );
                 byte[] seed = SogsPsuUtils.seed(envType, mpOprfSenderOutput.getPrf(values[index]));
-                message1[i] = SogsPsuUtils.seedTag(envType, seed, round, index);
+                message1[i] = SogsPsuUtils.seedTag(envType, seed, round, globalIndex);
             } else {
                 byte[] clientElement = SogsPsuUtils.decodeOptionalElement(
                     clientSingletonElements[i], elementByteLength
@@ -224,7 +257,7 @@ public class SogsPsuServer extends AbstractPsuServer {
                     continue;
                 }
                 byte[] seed = SogsPsuUtils.seed(envType, mpOprfSenderOutput.getPrf(clientElement));
-                message1[i] = SogsPsuUtils.seedTag(envType, seed, round, index);
+                message1[i] = SogsPsuUtils.seedTag(envType, seed, round, globalIndex);
             }
         }
         CotSenderOutput cotSenderOutput = unionCotSender.send(probeNum);
@@ -246,22 +279,34 @@ public class SogsPsuServer extends AbstractPsuServer {
         return rpc.receive(peeledHeader).getPayload();
     }
 
-    private void handlePeeledElements(List<byte[]> peeledPayload, boolean[] peeled) throws MpcAbortException {
+    private void handlePeeledElements(List<byte[]> peeledPayload, boolean[] mainPeeled, boolean[] auxiliaryPeeled)
+        throws MpcAbortException {
         for (byte[] encoded : peeledPayload) {
-            int index = SogsPsuUtils.decodePeeledIndex(encoded);
-            MpcAbortPreconditions.checkArgument(index >= 0 && index < peeled.length);
-            peeled[index] = true;
+            int globalIndex = SogsPsuUtils.decodePeeledIndex(encoded);
+            PeelPhase phase = SogsPsuUtils.phaseOfGlobalIndex(globalIndex, serverMainSketch.tableSize());
+            int localIndex = SogsPsuUtils.toLocalIndex(globalIndex, serverMainSketch.tableSize());
+            boolean[] peeled = activePeeled(phase, mainPeeled, auxiliaryPeeled);
+            MpcAbortPreconditions.checkArgument(localIndex >= 0 && localIndex < peeled.length);
+            peeled[localIndex] = true;
             byte[] element = SogsPsuUtils.decodePeeledElement(encoded, elementByteLength);
-            ByteBuffer elementBuffer = ByteBuffer.wrap(element);
-            if (serverElementSet.contains(elementBuffer) && serverRemainSet.remove(elementBuffer)) {
-                serverSketch.remove(SogsPsuUtils.elementKey(envType, element), element);
-            }
+            removeServerElement(element);
         }
     }
 
-    private int[] nextProbeIndexes(List<byte[]> peeledPayload, boolean[] peeled) {
+    private int[] nextProbeIndexes(PeelPhase phase, List<byte[]> peeledPayload, boolean[] peeled) {
         long[] peeledKeys = SogsPsuUtils.peeledElementKeys(envType, peeledPayload, elementByteLength);
-        return serverSketch.uniquePositions(peeledKeys, peeled);
+        return activeSketch(phase).uniquePositions(peeledKeys, peeled);
+    }
+
+    private void removeServerElement(byte[] element) {
+        ByteBuffer elementBuffer = ByteBuffer.wrap(element);
+        if (serverElementSet.contains(elementBuffer) && serverRemainSet.remove(elementBuffer)) {
+            long key = SogsPsuUtils.elementKey(envType, element);
+            serverMainSketch.remove(key, element);
+            if (config.isTwoTier()) {
+                serverAuxiliarySketch.remove(key, element);
+            }
+        }
     }
 
     private void sendFinish(long roundExtraInfo) throws MpcAbortException {
@@ -274,5 +319,68 @@ public class SogsPsuServer extends AbstractPsuServer {
         );
         rpc.send(DataPacket.fromByteArrayList(finishHeader, finishPayload));
         MpcAbortPreconditions.checkArgument(success);
+    }
+
+    private PhaseBoundaryResult handlePhaseBoundary(long roundExtraInfo, PeelPhase phase) throws MpcAbortException {
+        if (!config.isTwoTier()) {
+            sendFinish(roundExtraInfo);
+            return PhaseBoundaryResult.FINISH;
+        }
+        boolean clientRemainEmpty = receivePhaseStatus(roundExtraInfo);
+        if (serverRemainSet.isEmpty() && clientRemainEmpty) {
+            sendPhaseDecision(roundExtraInfo, PhaseBoundaryResult.FINISH);
+            return PhaseBoundaryResult.FINISH;
+        }
+        if (phase == PeelPhase.MAIN) {
+            sendPhaseDecision(roundExtraInfo, PhaseBoundaryResult.AUXILIARY);
+            return PhaseBoundaryResult.AUXILIARY;
+        }
+        sendPhaseDecision(roundExtraInfo, PhaseBoundaryResult.FAIL);
+        throw new MpcAbortException("two-tier SOGS peel failed");
+    }
+
+    private boolean receivePhaseStatus(long roundExtraInfo) throws MpcAbortException {
+        DataPacketHeader statusHeader = new DataPacketHeader(
+            encodeTaskId, getPtoDesc().getPtoId(), PtoStep.CLIENT_SEND_PHASE_STATUS.ordinal(), roundExtraInfo,
+            otherParty().getPartyId(), ownParty().getPartyId()
+        );
+        List<byte[]> statusPayload = rpc.receive(statusHeader).getPayload();
+        MpcAbortPreconditions.checkArgument(statusPayload.size() == 1);
+        MpcAbortPreconditions.checkArgument(statusPayload.get(0).length == 1);
+        return statusPayload.get(0)[0] == 1;
+    }
+
+    private void sendPhaseDecision(long roundExtraInfo, PhaseBoundaryResult decision) {
+        List<byte[]> decisionPayload = new ArrayList<>(1);
+        decisionPayload.add(new byte[]{(byte) decision.code});
+        DataPacketHeader decisionHeader = new DataPacketHeader(
+            encodeTaskId, getPtoDesc().getPtoId(), PtoStep.SERVER_SEND_PHASE_DECISION.ordinal(), roundExtraInfo,
+            ownParty().getPartyId(), otherParty().getPartyId()
+        );
+        rpc.send(DataPacket.fromByteArrayList(decisionHeader, decisionPayload));
+    }
+
+    private SogsPsuSketchBackend activeSketch(PeelPhase phase) {
+        return phase == PeelPhase.MAIN ? serverMainSketch : serverAuxiliarySketch;
+    }
+
+    private boolean[] activePeeled(PeelPhase phase, boolean[] mainPeeled, boolean[] auxiliaryPeeled) {
+        return phase == PeelPhase.MAIN ? mainPeeled : auxiliaryPeeled;
+    }
+
+    private int toGlobalIndex(PeelPhase phase, int localIndex) {
+        return SogsPsuUtils.toGlobalIndex(phase, localIndex, serverMainSketch.tableSize());
+    }
+
+    private enum PhaseBoundaryResult {
+        FINISH(0),
+        AUXILIARY(1),
+        FAIL(2);
+
+        private final int code;
+
+        PhaseBoundaryResult(int code) {
+            this.code = code;
+        }
     }
 }

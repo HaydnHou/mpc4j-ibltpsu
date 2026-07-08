@@ -63,4 +63,15 @@ public class SogsPsuSketchBackendFactory {
         SogsGraphParams params = SogsGraphParams.fromExpectedItemSize(expectedItemSize, alpha, degree, seed);
         return new SogsGraphPsuSketchBackend(params, payloadByteLength);
     }
+
+    /**
+     * Creates a SOGS backend from explicit parameters.
+     *
+     * @param params            graph parameters.
+     * @param payloadByteLength payload byte length.
+     * @return backend.
+     */
+    public static SogsPsuSketchBackend createSogsBackend(SogsGraphParams params, int payloadByteLength) {
+        return new SogsGraphPsuSketchBackend(params, payloadByteLength);
+    }
 }

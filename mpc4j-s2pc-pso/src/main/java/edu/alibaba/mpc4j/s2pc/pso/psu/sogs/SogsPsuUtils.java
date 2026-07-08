@@ -1,6 +1,7 @@
 package edu.alibaba.mpc4j.s2pc.pso.psu.sogs;
 
 import com.google.common.base.Preconditions;
+import edu.alibaba.mpc4j.common.structure.sogs.SogsGraphParams;
 import edu.alibaba.mpc4j.common.structure.sogs.SogsPsuSketchBackend;
 import edu.alibaba.mpc4j.common.structure.sogs.SogsPsuSketchBackendFactory;
 import edu.alibaba.mpc4j.common.tool.CommonConstants;
@@ -91,9 +92,42 @@ class SogsPsuUtils {
     static SogsPsuSketchBackend createSketchBackend(
         SogsPsuConfig config, int threshold, int valueByteLength, byte[] key
     ) {
+        return createMainSketchBackend(config, threshold, valueByteLength, key);
+    }
+
+    /**
+     * Creates the main SOGS sketch backend.
+     *
+     * @param config          config.
+     * @param threshold       threshold.
+     * @param valueByteLength value byte length.
+     * @param key             public sketch key.
+     * @return main sketch backend.
+     */
+    static SogsPsuSketchBackend createMainSketchBackend(
+        SogsPsuConfig config, int threshold, int valueByteLength, byte[] key
+    ) {
         return SogsPsuSketchBackendFactory.createSogsBackend(
-            threshold, config.getSogsAlpha(), config.getSogsDegree(), valueByteLength, sogsSeed(key)
+            threshold, config.getSogsAlpha(), config.getSogsDegree(), valueByteLength, mainSogsSeed(key)
         );
+    }
+
+    /**
+     * Creates the fixed auxiliary SOGS sketch backend.
+     *
+     * @param config          config.
+     * @param threshold       threshold.
+     * @param valueByteLength value byte length.
+     * @param key             public sketch key.
+     * @return auxiliary sketch backend.
+     */
+    static SogsPsuSketchBackend createAuxiliarySketchBackend(
+        SogsPsuConfig config, int threshold, int valueByteLength, byte[] key
+    ) {
+        SogsGraphParams params = SogsGraphParams.fromFixedVertexCount(
+            threshold, config.getAuxiliaryVertexCount(), config.getAuxiliaryDegree(), auxiliarySogsSeed(key)
+        );
+        return SogsPsuSketchBackendFactory.createSogsBackend(params, valueByteLength);
     }
 
     /**
@@ -106,6 +140,61 @@ class SogsPsuUtils {
         MathPreconditions.checkEqual("key.length", "BLOCK_BYTE_LENGTH", key.length, CommonConstants.BLOCK_BYTE_LENGTH);
         ByteBuffer buffer = ByteBuffer.wrap(key);
         return buffer.getLong() ^ Long.rotateLeft(buffer.getLong(), 17);
+    }
+
+    /**
+     * Derives the main SOGS position seed.
+     *
+     * @param key public sketch key.
+     * @return main seed.
+     */
+    static long mainSogsSeed(byte[] key) {
+        return sogsSeed(key);
+    }
+
+    /**
+     * Derives the auxiliary SOGS position seed with domain separation.
+     *
+     * @param key public sketch key.
+     * @return auxiliary seed.
+     */
+    static long auxiliarySogsSeed(byte[] key) {
+        long seed = sogsSeed(key) ^ 0x4D41494E5F415558L;
+        return Long.rotateLeft(seed, 29) ^ 0x4155585F54494552L;
+    }
+
+    /**
+     * Converts a local table index to a global two-layer index.
+     *
+     * @param phase         peel phase.
+     * @param localIndex    local index.
+     * @param mainTableSize main table size.
+     * @return global index.
+     */
+    static int toGlobalIndex(PeelPhase phase, int localIndex, int mainTableSize) {
+        return phase == PeelPhase.MAIN ? localIndex : Math.addExact(mainTableSize, localIndex);
+    }
+
+    /**
+     * Converts a global index to a local table index.
+     *
+     * @param globalIndex   global index.
+     * @param mainTableSize main table size.
+     * @return local index.
+     */
+    static int toLocalIndex(int globalIndex, int mainTableSize) {
+        return globalIndex < mainTableSize ? globalIndex : globalIndex - mainTableSize;
+    }
+
+    /**
+     * Gets the phase encoded by a global index.
+     *
+     * @param globalIndex   global index.
+     * @param mainTableSize main table size.
+     * @return phase.
+     */
+    static PeelPhase phaseOfGlobalIndex(int globalIndex, int mainTableSize) {
+        return globalIndex < mainTableSize ? PeelPhase.MAIN : PeelPhase.AUXILIARY;
     }
 
     /**

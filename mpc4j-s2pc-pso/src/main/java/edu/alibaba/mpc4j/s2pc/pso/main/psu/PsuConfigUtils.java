@@ -19,6 +19,7 @@ import edu.alibaba.mpc4j.s2pc.pso.psu.jsz22.Jsz22SfcPsuConfig;
 import edu.alibaba.mpc4j.s2pc.pso.psu.jsz22.Jsz22SfsPsuConfig;
 import edu.alibaba.mpc4j.s2pc.pso.psu.krtw19.Krtw19PsuConfig;
 import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.SogsPsuConfig;
+import edu.alibaba.mpc4j.s2pc.pso.psu.sogs.SogsPsuProfile;
 import edu.alibaba.mpc4j.s2pc.pso.psu.zcl23.Zcl23PkePsuConfig;
 import edu.alibaba.mpc4j.s2pc.pso.psu.zcl23.Zcl23SkePsuConfig;
 
@@ -48,6 +49,22 @@ public class PsuConfigUtils {
      * SOGS graph degree.
      */
     public final static String SOGS_DEGREE = "sogs_degree";
+    /**
+     * SOGS-PSU execution profile.
+     */
+    public final static String SOGS_PROFILE = "sogs_profile";
+    /**
+     * Whether to enable two-tier SOGS.
+     */
+    public final static String SOGS_TWO_TIER = "sogs_two_tier";
+    /**
+     * Two-tier auxiliary graph degree.
+     */
+    public final static String SOGS_AUXILIARY_DEGREE = "sogs_auxiliary_degree";
+    /**
+     * Two-tier auxiliary fixed vertex count.
+     */
+    public final static String SOGS_AUXILIARY_VERTEX_COUNT = "sogs_auxiliary_vertex_count";
 
     /**
      * private constructor.
@@ -148,11 +165,23 @@ public class PsuConfigUtils {
 
     private static SogsPsuConfig createSogsPsuConfig(Properties properties) {
         SogsPsuConfig.Builder builder = new SogsPsuConfig.Builder();
+        if (PropertiesUtils.containsKeyword(properties, SOGS_PROFILE)) {
+            builder.setProfile(MainPtoConfigUtils.readEnum(SogsPsuProfile.class, properties, SOGS_PROFILE));
+        }
         if (PropertiesUtils.containsKeyword(properties, SOGS_ALPHA)) {
             builder.setSogsAlpha(PropertiesUtils.readDouble(properties, SOGS_ALPHA));
         }
         if (PropertiesUtils.containsKeyword(properties, SOGS_DEGREE)) {
             builder.setSogsDegree(PropertiesUtils.readInt(properties, SOGS_DEGREE));
+        }
+        if (PropertiesUtils.containsKeyword(properties, SOGS_TWO_TIER)) {
+            builder.setTwoTier(PropertiesUtils.readBoolean(properties, SOGS_TWO_TIER));
+        }
+        if (PropertiesUtils.containsKeyword(properties, SOGS_AUXILIARY_DEGREE)) {
+            builder.setAuxiliaryDegree(PropertiesUtils.readInt(properties, SOGS_AUXILIARY_DEGREE));
+        }
+        if (PropertiesUtils.containsKeyword(properties, SOGS_AUXILIARY_VERTEX_COUNT)) {
+            builder.setAuxiliaryVertexCount(PropertiesUtils.readInt(properties, SOGS_AUXILIARY_VERTEX_COUNT));
         }
         return builder.build();
     }
