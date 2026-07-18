@@ -1,5 +1,7 @@
 package edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4prss;
 
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PrssPhase;
+
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
@@ -43,12 +45,14 @@ class Rep4PrssRandomSource {
         this.taskId = taskId;
     }
 
-    long[] componentRandom(byte[] componentSeed, int componentId, int stepId, long extraInfo, int dealerId,
-                           int blockNum) {
+    long[] componentRandom(byte[] componentSeed, long backendId, PrssPhase phase, int componentId, int stepId,
+                           long operationId, int itemIndex, int dealerId, int blockNum) {
         if (blockNum <= 0) {
             throw new IllegalArgumentException("blockNum must be positive: " + blockNum);
         }
-        byte[] aesKey = deriveAesKey(componentSeed, componentId, stepId, extraInfo, dealerId);
+        byte[] aesKey = deriveAesKey(
+            componentSeed, backendId, phase, componentId, stepId, operationId, itemIndex, dealerId, blockNum
+        );
         byte[] randomBytes = expandAesCtr(aesKey, blockNum * Long.BYTES);
         ByteBuffer buffer = ByteBuffer.wrap(randomBytes);
         long[] blocks = new long[blockNum];
@@ -58,16 +62,22 @@ class Rep4PrssRandomSource {
         return blocks;
     }
 
-    private byte[] deriveAesKey(byte[] componentSeed, int componentId, int stepId, long extraInfo, int dealerId) {
+    private byte[] deriveAesKey(byte[] componentSeed, long backendId, PrssPhase phase, int componentId, int stepId,
+                                long operationId, int itemIndex, int dealerId, int blockNum) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            ByteBuffer context = ByteBuffer.allocate(componentSeed.length + Integer.BYTES * 3 + Long.BYTES * 2);
+            ByteBuffer context = ByteBuffer.allocate(componentSeed.length + Integer.BYTES * 7 + Long.BYTES * 3);
             context.put(componentSeed);
+            context.putInt(1);
+            context.putLong(taskId);
+            context.putLong(backendId);
+            context.putInt(phase.ordinal());
             context.putInt(componentId);
             context.putInt(stepId);
-            context.putLong(extraInfo);
+            context.putLong(operationId);
+            context.putInt(itemIndex);
             context.putInt(dealerId);
-            context.putLong(taskId);
+            context.putInt(blockNum);
             byte[] hash = digest.digest(context.array());
             return Arrays.copyOf(hash, AES_BLOCK_BYTE_LENGTH);
         } catch (NoSuchAlgorithmException e) {

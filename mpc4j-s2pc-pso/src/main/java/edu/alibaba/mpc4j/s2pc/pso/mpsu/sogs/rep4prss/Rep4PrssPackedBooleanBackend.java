@@ -7,6 +7,7 @@ import edu.alibaba.mpc4j.common.rpc.utils.DataPacketHeader;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsMpsuPtoDesc;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PackedBooleanBackend;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PackedBooleanShare;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PrssPhase;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -39,11 +40,6 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
      * Protocol step for AND resharing.
      */
     private static final int STEP_AND_RESHARE = 33;
-    /**
-     * Domain bit for compact child backends. This keeps PRSS extraInfo disjoint from the parent backend.
-     */
-    private static final long COMPACT_EXTRA_INFO_DOMAIN = 1L << 60;
-
     private final Rpc rpc;
     private final Party[] parties;
     private final int ownPartyId;
@@ -51,16 +47,16 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
     private final int blockNum;
     private final long lastBlockMask;
     private final long taskId;
-    private final Rep4PrssSeedManager seedManager;
-    private final int[] networkRoundCounter;
-    private long extraInfo;
+    private final Rep4PrssSession session;
+    private final long backendId;
+    private final PrssPhase phase;
 
     public Rep4PrssPackedBooleanBackend(Rpc rpc, int batchSize, long taskId) {
-        this(rpc, batchSize, taskId, null, new int[]{0}, 0L);
+        this(rpc, batchSize, taskId, new Rep4PrssSession(rpc, taskId), 0L, PrssPhase.FULL);
     }
 
-    private Rep4PrssPackedBooleanBackend(Rpc rpc, int batchSize, long taskId, Rep4PrssSeedManager seedManager,
-                                         int[] networkRoundCounter, long extraInfo) {
+    Rep4PrssPackedBooleanBackend(Rpc rpc, int batchSize, long taskId, Rep4PrssSession session,
+                                 long backendId, PrssPhase phase) {
         if (batchSize <= 0) {
             throw new IllegalArgumentException("batchSize must be positive: " + batchSize);
         }
@@ -78,17 +74,17 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
         int lastBits = batchSize & (Long.SIZE - 1);
         lastBlockMask = lastBits == 0 ? -1L : (1L << lastBits) - 1L;
         this.taskId = taskId;
-        this.seedManager = seedManager == null ? new Rep4PrssSeedManager(rpc, taskId) : seedManager;
-        this.networkRoundCounter = networkRoundCounter;
-        this.extraInfo = extraInfo;
+        this.session = session;
+        this.backendId = backendId;
+        this.phase = phase;
     }
 
     public int getNetworkRoundCount() {
-        return networkRoundCounter[0];
+        return session.getNetworkRoundCount();
     }
 
     public void resetNetworkRoundCount() {
-        networkRoundCounter[0] = 0;
+        session.resetNetworkRoundCount();
     }
 
     @Override
@@ -269,16 +265,13 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
 
     @Override
     public PackedBooleanBackend derive(int compactBatchSize) {
-        long compactBaseInfo = COMPACT_EXTRA_INFO_DOMAIN | (extraInfo++ << 20);
-        return new Rep4PrssPackedBooleanBackend(
-            rpc, compactBatchSize, taskId, seedManager, networkRoundCounter, compactBaseInfo
-        );
+        return session.createBackend(compactBatchSize, PrssPhase.SELECTED);
     }
 
     private Rep4PrssPackedBooleanShare[] shareOwnAndReceiveAll(long[] ownBits, int stepId) {
         checkBlockNum(ownBits);
-        long info = extraInfo++;
-        long[] ownDelta = correctionDelta(maskValidBits(ownBits), ownPartyId, stepId, info, info);
+        long info = session.nextOperationId();
+        long[] ownDelta = correctionDelta(maskValidBits(ownBits), ownPartyId, stepId, info, 0);
         int ownCorrectionComponent = correctionComponent(ownPartyId, info);
         sendCorrectionDelta(ownDelta, stepId, info, ownCorrectionComponent);
         long[][] correctionDeltas = new long[PARTY_NUM][];
@@ -292,10 +285,10 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
         Rep4PrssPackedBooleanShare[] sharesByDealer = new Rep4PrssPackedBooleanShare[PARTY_NUM];
         for (int dealerId = 0; dealerId < PARTY_NUM; dealerId++) {
             sharesByDealer[dealerId] = buildShareForDealer(
-                dealerId, stepId, info, info, correctionDeltas[dealerId]
+                dealerId, stepId, info, 0, correctionDeltas[dealerId]
             );
         }
-        networkRoundCounter[0]++;
+        session.incrementNetworkRoundCount();
         return sharesByDealer;
     }
 
@@ -307,11 +300,11 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
         for (long[] ownBits : ownBitsArray) {
             checkBlockNum(ownBits);
         }
-        long info = extraInfo++;
+        long info = session.nextOperationId();
         long[][] ownDeltas = new long[num][];
         for (int itemIndex = 0; itemIndex < num; itemIndex++) {
             ownDeltas[itemIndex] = correctionDelta(
-                maskValidBits(ownBitsArray[itemIndex]), ownPartyId, stepId, info, itemInfo(info, itemIndex)
+                maskValidBits(ownBitsArray[itemIndex]), ownPartyId, stepId, info, itemIndex
             );
         }
         int ownCorrectionComponent = correctionComponent(ownPartyId, info);
@@ -326,25 +319,24 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
         }
         Rep4PrssPackedBooleanShare[][] sharesByItemDealer = new Rep4PrssPackedBooleanShare[num][PARTY_NUM];
         for (int itemIndex = 0; itemIndex < num; itemIndex++) {
-            long prssInfo = itemInfo(info, itemIndex);
             for (int dealerId = 0; dealerId < PARTY_NUM; dealerId++) {
                 long[] correctionDelta = correctionDeltas[dealerId] == null
                     ? null
                     : correctionDeltas[dealerId][itemIndex];
                 sharesByItemDealer[itemIndex][dealerId] = buildShareForDealer(
-                    dealerId, stepId, prssInfo, info, correctionDelta
+                    dealerId, stepId, info, itemIndex, correctionDelta
                 );
             }
         }
-        networkRoundCounter[0]++;
+        session.incrementNetworkRoundCount();
         return sharesByItemDealer;
     }
 
-    private long[] correctionDelta(long[] bits, int dealerId, int stepId, long correctionInfo, long prssInfo) {
+    private long[] correctionDelta(long[] bits, int dealerId, int stepId, long operationId, int itemIndex) {
         long[] delta = Arrays.copyOf(bits, blockNum);
         for (int componentIndex = 0; componentIndex < PARTY_NUM; componentIndex++) {
             if (componentIndex != dealerId) {
-                xorInPlace(delta, prssComponent(componentIndex, stepId, prssInfo, dealerId));
+                xorInPlace(delta, prssComponent(componentIndex, stepId, operationId, itemIndex, dealerId));
             }
         }
         delta[blockNum - 1] &= lastBlockMask;
@@ -406,8 +398,8 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
         return ownPartyId != dealerId && ownPartyId != correctionComponent;
     }
 
-    private Rep4PrssPackedBooleanShare buildShareForDealer(int dealerId, int stepId, long prssInfo,
-                                                           long correctionInfo, long[] correctionDelta) {
+    private Rep4PrssPackedBooleanShare buildShareForDealer(int dealerId, int stepId, long operationId,
+                                                           int itemIndex, long[] correctionDelta) {
         long[][] components = new long[PARTY_NUM][];
         for (int componentIndex = 0; componentIndex < PARTY_NUM; componentIndex++) {
             if (componentIndex == ownPartyId) {
@@ -415,10 +407,12 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
             } else if (componentIndex == dealerId) {
                 components[componentIndex] = new long[blockNum];
             } else {
-                components[componentIndex] = prssComponent(componentIndex, stepId, prssInfo, dealerId);
+                components[componentIndex] = prssComponent(
+                    componentIndex, stepId, operationId, itemIndex, dealerId
+                );
             }
         }
-        int correctionComponent = correctionComponent(dealerId, correctionInfo);
+        int correctionComponent = correctionComponent(dealerId, operationId);
         if (correctionComponent != ownPartyId) {
             if (correctionDelta == null) {
                 throw new IllegalStateException("missing REP4 PRSS correction delta from dealer " + dealerId);
@@ -429,12 +423,8 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
         return new Rep4PrssPackedBooleanShare(components, blockNum);
     }
 
-    private long itemInfo(long info, int itemIndex) {
-        return info ^ (((long) itemIndex + 1) << 32);
-    }
-
     private long[][] openCompact(Rep4PrssPackedBooleanShare share, int openBlockNum) {
-        long info = extraInfo++;
+        long info = session.nextOperationId();
         for (int componentIndex = 0; componentIndex < PARTY_NUM; componentIndex++) {
             if (openHolder(componentIndex) == ownPartyId) {
                 DataPacketHeader header = new DataPacketHeader(
@@ -458,7 +448,7 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
             }
             components[ownPartyId] = decodeBlocks(payload.get(0), openBlockNum);
         }
-        networkRoundCounter[0]++;
+        session.incrementNetworkRoundCount();
         return components;
     }
 
@@ -487,8 +477,10 @@ public class Rep4PrssPackedBooleanBackend implements PackedBooleanBackend {
         return (componentId + 1) % PARTY_NUM;
     }
 
-    private long[] prssComponent(int componentIndex, int stepId, long info, int dealerId) {
-        long[] component = seedManager.componentRandom(componentIndex, stepId, info, dealerId, blockNum);
+    private long[] prssComponent(int componentIndex, int stepId, long operationId, int itemIndex, int dealerId) {
+        long[] component = session.getSeedManager().componentRandom(
+            backendId, phase, componentIndex, stepId, operationId, itemIndex, dealerId, blockNum
+        );
         component[blockNum - 1] &= lastBlockMask;
         return component;
     }

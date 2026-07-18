@@ -12,6 +12,7 @@ import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PackedBooleanShare;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PackedOpenedFirstMpSogsUnionPeel;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PackedMpSogsCellBatch;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PackedSecureMpSogsUnionPeel;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PrssPhase;
 
 import java.util.List;
 
@@ -27,7 +28,7 @@ public class Rep5PrssSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
      */
     private static final int ELEMENT_BITS = MpSogsMpsuParams.ELEMENT_BIT_LENGTH;
 
-    private final Rep5PrssPackedBooleanBackend backend;
+    private final Rep5PrssSession session;
     private final MpSogsSketch localSketch;
     private final MpSogsMpsuParams params;
     private final int maxBatchSize;
@@ -44,7 +45,7 @@ public class Rep5PrssSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
             throw new IllegalArgumentException("REP5 PRSS secure-uPeel requires exactly 5 parties: "
                 + params.getPartyNum());
         }
-        backend = new Rep5PrssPackedBooleanBackend(rpc, batchSize, taskId);
+        session = new Rep5PrssSession(rpc, taskId);
         this.localSketch = localSketch;
         this.params = params;
         maxBatchSize = batchSize;
@@ -63,13 +64,14 @@ public class Rep5PrssSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
             throw new IllegalArgumentException("batch exceeds REP5 PRSS backend capacity: " + input.size()
                 + " > " + maxBatchSize);
         }
+        Rep5PrssPackedBooleanBackend backend = session.createBackend(input.size(), PrssPhase.FULL);
         backend.resetNetworkRoundCount();
-        LocalPackedWires localWires = encodeLocalWires(input);
-        PackedBooleanShare[] singleton = shareWire(localWires.singleton);
-        PackedBooleanShare[] heavy = shareWire(localWires.heavy);
+        LocalPackedWires localWires = encodeLocalWires(input, backend);
+        PackedBooleanShare[] singleton = shareWire(localWires.singleton, backend);
+        PackedBooleanShare[] heavy = shareWire(localWires.heavy, backend);
         PackedBooleanShare[][] valueBits = new PackedBooleanShare[params.getPartyNum()][ELEMENT_BITS];
         for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
-            PackedBooleanShare[] bitShares = shareWire(localWires.valueBits[bitIndex]);
+            PackedBooleanShare[] bitShares = shareWire(localWires.valueBits[bitIndex], backend);
             for (int partyIndex = 0; partyIndex < params.getPartyNum(); partyIndex++) {
                 valueBits[partyIndex][bitIndex] = bitShares[partyIndex];
             }
@@ -81,15 +83,21 @@ public class Rep5PrssSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         return new BatchMpSogsPeelOutput(results, 0L, 0L, backend.getNetworkRoundCount());
     }
 
-    private PackedBooleanShare[] shareWire(long[] wire) {
+    private PackedBooleanShare[] shareWire(long[] wire, Rep5PrssPackedBooleanBackend backend) {
         Rep5PrssPackedBooleanShare[] shares = backend.shareOwnAndReceiveAll(wire);
         PackedBooleanShare[] result = new PackedBooleanShare[shares.length];
         System.arraycopy(shares, 0, result, 0, shares.length);
         return result;
     }
 
-    private LocalPackedWires encodeLocalWires(BatchMpSogsPeelInput input) {
+    private LocalPackedWires encodeLocalWires(BatchMpSogsPeelInput input,
+                                               Rep5PrssPackedBooleanBackend backend) {
         int blockNum = backend.blockNum();
+        int expectedBlockNum = (input.size() + Long.SIZE - 1) / Long.SIZE;
+        if (blockNum != expectedBlockNum) {
+            throw new IllegalStateException("REP5 PRSS actual-size block mismatch: " + blockNum
+                + " != " + expectedBlockNum);
+        }
         long[] singleton = new long[blockNum];
         long[] heavy = new long[blockNum];
         long[][] valueBits = new long[ELEMENT_BITS][blockNum];

@@ -3,11 +3,13 @@ package edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep5prss;
 import edu.alibaba.mpc4j.common.rpc.Rpc;
 import edu.alibaba.mpc4j.common.rpc.impl.memory.MemoryRpcManager;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PackedBooleanShare;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PrssPhase;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
 /**
@@ -22,6 +24,57 @@ public class Rep5PrssPackedBooleanBackendTest {
         runBackendTest(1);
         runBackendTest(65);
         runBackendTest(130);
+    }
+
+    @Test
+    public void testActualSizeBackendSequence() throws InterruptedException {
+        MemoryRpcManager rpcManager = new MemoryRpcManager(Rep5PrssPackedBooleanBackend.PARTY_NUM);
+        Rpc[] rpcs = IntStream.range(0, Rep5PrssPackedBooleanBackend.PARTY_NUM)
+            .mapToObj(rpcManager::getRpc)
+            .toArray(Rpc[]::new);
+        Arrays.stream(rpcs).forEach(Rpc::connect);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread[] threads = IntStream.range(0, Rep5PrssPackedBooleanBackend.PARTY_NUM)
+            .mapToObj(partyIndex -> new Thread(() -> {
+                try {
+                    runActualSizeSequence(rpcs[partyIndex]);
+                } catch (Throwable throwable) {
+                    failure.compareAndSet(null, throwable);
+                }
+            },
+                "rep5-prss-actual-size-party-" + partyIndex))
+            .toArray(Thread[]::new);
+        try {
+            Arrays.stream(threads).forEach(Thread::start);
+            for (Thread thread : threads) {
+                thread.join(30_000L);
+                Assert.assertFalse("REP5 actual-size sequence timed out", thread.isAlive());
+            }
+            if (failure.get() != null) {
+                throw new AssertionError("REP5 actual-size sequence failed", failure.get());
+            }
+        } finally {
+            Arrays.stream(rpcs).forEach(Rpc::disconnect);
+        }
+    }
+
+    private static void runActualSizeSequence(Rpc rpc) {
+        Rep5PrssSession session = new Rep5PrssSession(rpc, 8_200_000L);
+        for (int batchSize : new int[]{130, 1, 65}) {
+            Rep5PrssPackedBooleanBackend backend = session.createBackend(batchSize, PrssPhase.FULL);
+            int blockNum = (batchSize + Long.SIZE - 1) / Long.SIZE;
+            Assert.assertEquals(blockNum, backend.blockNum());
+            long[] ownBits = new long[blockNum];
+            Arrays.fill(ownBits, rpc.ownParty().getPartyId() + 1L);
+            ownBits[blockNum - 1] &= lastMask(batchSize);
+            Rep5PrssPackedBooleanShare[] shares = backend.shareOwnAndReceiveAll(ownBits);
+            for (int dealerId = 0; dealerId < Rep5PrssPackedBooleanBackend.PARTY_NUM; dealerId++) {
+                long[] expected = new long[blockNum];
+                Arrays.fill(expected, dealerId + 1L);
+                expected[blockNum - 1] &= lastMask(batchSize);
+                Assert.assertArrayEquals(expected, backend.open(shares[dealerId]));
+            }
+        }
     }
 
     private void runBackendTest(int batchSize) throws InterruptedException {

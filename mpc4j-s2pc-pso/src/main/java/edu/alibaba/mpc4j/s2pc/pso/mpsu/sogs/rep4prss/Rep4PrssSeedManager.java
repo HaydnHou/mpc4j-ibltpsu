@@ -5,6 +5,7 @@ import edu.alibaba.mpc4j.common.rpc.Rpc;
 import edu.alibaba.mpc4j.common.rpc.utils.DataPacket;
 import edu.alibaba.mpc4j.common.rpc.utils.DataPacketHeader;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsMpsuPtoDesc;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed.PrssPhase;
 
 import java.security.SecureRandom;
 import java.util.Comparator;
@@ -55,7 +56,8 @@ class Rep4PrssSeedManager {
         setupSeeds();
     }
 
-    long[] componentRandom(int componentId, int stepId, long extraInfo, int dealerId, int blockNum) {
+    long[] componentRandom(long backendId, PrssPhase phase, int componentId, int stepId, long operationId,
+                           int itemIndex, int dealerId, int blockNum) {
         if (componentId == ownPartyId) {
             throw new IllegalArgumentException("party " + ownPartyId + " cannot derive missing component "
                 + componentId);
@@ -64,7 +66,9 @@ class Rep4PrssSeedManager {
         if (seed == null) {
             throw new IllegalStateException("missing PRSS seed for component " + componentId);
         }
-        return randomSource.componentRandom(seed, componentId, stepId, extraInfo, dealerId, blockNum);
+        return randomSource.componentRandom(
+            seed, backendId, phase, componentId, stepId, operationId, itemIndex, dealerId, blockNum
+        );
     }
 
     private void setupSeeds() {
