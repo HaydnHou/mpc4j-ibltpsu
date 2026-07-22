@@ -39,10 +39,20 @@ public class MpSogsHashUtils {
         int rowCellNum = params.getRowCellNum(tier);
         int[] cells = new int[hashNum];
         for (int hashIndex = 0; hashIndex < hashNum; hashIndex++) {
-            long z = splitMix64(value ^ params.getHashSeed(tier) ^ rowSeed(hashIndex));
+            long z = rowHash(value, params, tier, hashIndex);
             cells[hashIndex] = hashIndex * rowCellNum + toIndex(z, rowCellNum);
         }
         return cells;
+    }
+
+    /**
+     * Returns the 64-bit permutation word used by one row hash.
+     */
+    static long rowHash(long value, MpSogsMpsuParams params, MpSogsTier tier, int hashIndex) {
+        if (hashIndex < 0 || hashIndex >= params.getHashNum(tier)) {
+            throw new IllegalArgumentException("invalid " + tier + " hash row: " + hashIndex);
+        }
+        return splitMix64(value ^ params.getHashSeed(tier) ^ rowSeed(hashIndex));
     }
 
     /**
@@ -62,7 +72,17 @@ public class MpSogsHashUtils {
         return z ^ (z >>> 31);
     }
 
-    private static long rowSeed(int hashIndex) {
+    /**
+     * Inverts {@link #splitMix64(long)} exactly over 64-bit words.
+     */
+    static long inverseSplitMix64(long z) {
+        z = (z ^ (z >>> 31) ^ (z >>> 62)) * 0x319642B2D24D8EC3L;
+        z = (z ^ (z >>> 27) ^ (z >>> 54)) * 0x96DE1B173F119089L;
+        z = z ^ (z >>> 30) ^ (z >>> 60);
+        return z - 0x9E3779B97F4A7C15L;
+    }
+
+    static long rowSeed(int hashIndex) {
         return splitMix64(0xD6E8FEB86659FD93L * (hashIndex + 1));
     }
 

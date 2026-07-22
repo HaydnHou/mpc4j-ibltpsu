@@ -1,6 +1,5 @@
 package edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed;
 
-import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsMpsuParams;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsPeelResult;
 
 import java.util.ArrayList;
@@ -16,11 +15,6 @@ import java.util.List;
  * @date 2026/06/22
  */
 public class PackedOpenedFirstMpSogsUnionPeel {
-    /**
-     * Element bit length.
-     */
-    private static final int ELEMENT_BITS = MpSogsMpsuParams.ELEMENT_BIT_LENGTH;
-
     /**
      * Full-batch backend.
      */
@@ -39,8 +33,8 @@ public class PackedOpenedFirstMpSogsUnionPeel {
     public List<MpSogsPeelResult> peel(PackedMpSogsCellBatch batch) {
         PackedBooleanShare[] singleton = batch.getSingleton();
         PackedBooleanShare[] heavy = batch.getHeavy();
-        PackedBooleanShare[][] valueBits = batch.getValueBits();
-        PackedBooleanShare opened = opened(singleton, heavy, valueBits);
+        PackedBooleanShare[][] labelBits = batch.getLabelBits();
+        PackedBooleanShare opened = opened(singleton, heavy, labelBits);
         long[] openedBlocks = backend.open(opened);
         int[] selectedIndexes = selectedIndexes(openedBlocks, batch.getBatchSize());
         if (selectedIndexes.length == 0) {
@@ -48,13 +42,13 @@ public class PackedOpenedFirstMpSogsUnionPeel {
         }
         PackedBooleanBackend compactBackend = backend.derive(selectedIndexes.length);
         PackedBooleanShare[] compactSingleton = compact(singleton, selectedIndexes);
-        PackedBooleanShare[][] compactValueBits = compact(valueBits, selectedIndexes);
-        PackedBooleanShare[] candidateBits = candidateBits(compactBackend, compactSingleton, compactValueBits);
-        long[][] selectedCandidateBitBlocks = new long[ELEMENT_BITS][];
-        for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
+        PackedBooleanShare[][] compactLabelBits = compact(labelBits, selectedIndexes);
+        PackedBooleanShare[] candidateBits = candidateBits(compactBackend, compactSingleton, compactLabelBits);
+        long[][] selectedCandidateBitBlocks = new long[batch.getLabelBitLength()][];
+        for (int bitIndex = 0; bitIndex < batch.getLabelBitLength(); bitIndex++) {
             selectedCandidateBitBlocks[bitIndex] = compactBackend.open(candidateBits[bitIndex]);
         }
-        return decode(openedBlocks, selectedIndexes, selectedCandidateBitBlocks, batch.getBatchSize());
+        return decode(openedBlocks, selectedIndexes, selectedCandidateBitBlocks, batch);
     }
 
     private PackedBooleanShare opened(PackedBooleanShare[] singleton, PackedBooleanShare[] heavy,
@@ -71,7 +65,7 @@ public class PackedOpenedFirstMpSogsUnionPeel {
             for (int rightParty = leftParty + 1; rightParty < singleton.length; rightParty++) {
                 PackedBooleanShare pairActive = backend.and(singleton[leftParty], singleton[rightParty]);
                 PackedBooleanShare valueDiff = null;
-                for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
+                for (int bitIndex = 0; bitIndex < valueBits[leftParty].length; bitIndex++) {
                     PackedBooleanShare diff = backend.xor(valueBits[leftParty][bitIndex], valueBits[rightParty][bitIndex]);
                     valueDiff = valueDiff == null ? diff : backend.or(valueDiff, diff);
                 }
@@ -91,9 +85,10 @@ public class PackedOpenedFirstMpSogsUnionPeel {
     }
 
     private PackedBooleanShare[][] compact(PackedBooleanShare[][] shares, int[] selectedIndexes) {
-        PackedBooleanShare[][] compactShares = new PackedBooleanShare[shares.length][ELEMENT_BITS];
+        int labelBitLength = shares[0].length;
+        PackedBooleanShare[][] compactShares = new PackedBooleanShare[shares.length][labelBitLength];
         for (int partyIndex = 0; partyIndex < shares.length; partyIndex++) {
-            for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
+            for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
                 compactShares[partyIndex][bitIndex] = backend.compact(shares[partyIndex][bitIndex], selectedIndexes);
             }
         }
@@ -102,8 +97,9 @@ public class PackedOpenedFirstMpSogsUnionPeel {
 
     private static PackedBooleanShare[] candidateBits(PackedBooleanBackend backend, PackedBooleanShare[] singleton,
                                                       PackedBooleanShare[][] valueBits) {
-        PackedBooleanShare[] candidateBits = new PackedBooleanShare[ELEMENT_BITS];
-        for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
+        int labelBitLength = valueBits[0].length;
+        PackedBooleanShare[] candidateBits = new PackedBooleanShare[labelBitLength];
+        for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
             PackedBooleanShare[] left = new PackedBooleanShare[singleton.length];
             PackedBooleanShare[] right = new PackedBooleanShare[singleton.length];
             for (int partyIndex = 0; partyIndex < singleton.length; partyIndex++) {
@@ -157,8 +153,9 @@ public class PackedOpenedFirstMpSogsUnionPeel {
     }
 
     private static List<MpSogsPeelResult> decode(
-        long[] openedBlocks, int[] selectedIndexes, long[][] selectedCandidateBitBlocks, int batchSize
+        long[] openedBlocks, int[] selectedIndexes, long[][] selectedCandidateBitBlocks, PackedMpSogsCellBatch batch
     ) {
+        int batchSize = batch.getBatchSize();
         List<MpSogsPeelResult> results = new ArrayList<>(batchSize);
         int selectedIndex = 0;
         for (int laneIndex = 0; laneIndex < batchSize; laneIndex++) {
@@ -169,12 +166,14 @@ public class PackedOpenedFirstMpSogsUnionPeel {
             if (selectedIndexes[selectedIndex] != laneIndex) {
                 throw new IllegalStateException("selected lane mismatch");
             }
-            long value = 0L;
-            for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
+            long label = 0L;
+            int labelBitLength = selectedCandidateBitBlocks.length;
+            for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
                 if (getLane(selectedCandidateBitBlocks[bitIndex], selectedIndex)) {
-                    value |= 1L << (ELEMENT_BITS - 1 - bitIndex);
+                    label |= 1L << (labelBitLength - 1 - bitIndex);
                 }
             }
+            long value = batch.decodeLabel(label, laneIndex);
             results.add(MpSogsPeelResult.element(value));
             selectedIndex++;
         }

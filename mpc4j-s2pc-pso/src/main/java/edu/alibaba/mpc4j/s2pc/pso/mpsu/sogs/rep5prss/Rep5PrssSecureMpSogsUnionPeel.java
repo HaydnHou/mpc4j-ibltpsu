@@ -4,6 +4,7 @@ import edu.alibaba.mpc4j.common.rpc.Rpc;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.BatchMpSogsPeelInput;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.BatchMpSogsPeelOutput;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsLocalCellView;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsLabelEncoding;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsMpsuParams;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsPeelResult;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsSketch;
@@ -23,24 +24,26 @@ import java.util.List;
  * @date 2026/06/22
  */
 public class Rep5PrssSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
-    /**
-     * Element bit length.
-     */
-    private static final int ELEMENT_BITS = MpSogsMpsuParams.ELEMENT_BIT_LENGTH;
-
     private final Rep5PrssSession session;
     private final MpSogsSketch localSketch;
     private final MpSogsMpsuParams params;
     private final int maxBatchSize;
     private final boolean openedFirst;
+    private final MpSogsLabelEncoding labelEncoding;
 
     public Rep5PrssSecureMpSogsUnionPeel(Rpc rpc, MpSogsSketch localSketch, MpSogsMpsuParams params, long taskId,
                                          int batchSize) {
-        this(rpc, localSketch, params, taskId, batchSize, false);
+        this(rpc, localSketch, params, taskId, batchSize, false, MpSogsLabelEncoding.FULL_VALUE);
     }
 
     public Rep5PrssSecureMpSogsUnionPeel(Rpc rpc, MpSogsSketch localSketch, MpSogsMpsuParams params, long taskId,
                                          int batchSize, boolean openedFirst) {
+        this(rpc, localSketch, params, taskId, batchSize, openedFirst, MpSogsLabelEncoding.FULL_VALUE);
+    }
+
+    public Rep5PrssSecureMpSogsUnionPeel(Rpc rpc, MpSogsSketch localSketch, MpSogsMpsuParams params, long taskId,
+                                         int batchSize, boolean openedFirst,
+                                         MpSogsLabelEncoding labelEncoding) {
         if (params.getPartyNum() != Rep5PrssPackedBooleanBackend.PARTY_NUM) {
             throw new IllegalArgumentException("REP5 PRSS secure-uPeel requires exactly 5 parties: "
                 + params.getPartyNum());
@@ -50,6 +53,7 @@ public class Rep5PrssSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         this.params = params;
         maxBatchSize = batchSize;
         this.openedFirst = openedFirst;
+        this.labelEncoding = labelEncoding;
         if (localSketch.getCellNum() != params.getCellNum()) {
             throw new IllegalArgumentException("local sketch parameters do not match MP-SOGS parameters");
         }
@@ -69,14 +73,18 @@ public class Rep5PrssSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         LocalPackedWires localWires = encodeLocalWires(input, backend);
         PackedBooleanShare[] singleton = shareWire(localWires.singleton, backend);
         PackedBooleanShare[] heavy = shareWire(localWires.heavy, backend);
-        PackedBooleanShare[][] valueBits = new PackedBooleanShare[params.getPartyNum()][ELEMENT_BITS];
-        for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
-            PackedBooleanShare[] bitShares = shareWire(localWires.valueBits[bitIndex], backend);
+        int labelBitLength = labelEncoding.bitLength(params, input.getTier());
+        PackedBooleanShare[][] labelBits = new PackedBooleanShare[params.getPartyNum()][labelBitLength];
+        for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
+            PackedBooleanShare[] bitShares = shareWire(localWires.labelBits[bitIndex], backend);
             for (int partyIndex = 0; partyIndex < params.getPartyNum(); partyIndex++) {
-                valueBits[partyIndex][bitIndex] = bitShares[partyIndex];
+                labelBits[partyIndex][bitIndex] = bitShares[partyIndex];
             }
         }
-        PackedMpSogsCellBatch batch = PackedMpSogsCellBatch.fromShares(input.size(), singleton, heavy, valueBits);
+        int[] cellIndexes = input.getCellIndexes().stream().mapToInt(Integer::intValue).toArray();
+        PackedMpSogsCellBatch batch = PackedMpSogsCellBatch.fromShares(
+            input.size(), singleton, heavy, labelBits, labelEncoding, params, input.getTier(), cellIndexes
+        );
         List<MpSogsPeelResult> results = openedFirst
             ? new PackedOpenedFirstMpSogsUnionPeel(backend).peel(batch)
             : new PackedSecureMpSogsUnionPeel(backend).peel(batch);
@@ -100,30 +108,32 @@ public class Rep5PrssSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         }
         long[] singleton = new long[blockNum];
         long[] heavy = new long[blockNum];
-        long[][] valueBits = new long[ELEMENT_BITS][blockNum];
+        int labelBitLength = labelEncoding.bitLength(params, input.getTier());
+        long[][] labelBits = new long[labelBitLength][blockNum];
         for (int batchIndex = 0; batchIndex < input.size(); batchIndex++) {
             int cellIndex = input.getCellIndexes().get(batchIndex);
             MpSogsLocalCellView view = localSketch.localCellView(input.getTier(), cellIndex);
             if (view.isSingleton()) {
                 setLane(singleton, batchIndex);
                 long value = view.getSingletonValue();
-                for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
-                    if (((value >>> (ELEMENT_BITS - 1 - bitIndex)) & 1L) != 0L) {
-                        setLane(valueBits[bitIndex], batchIndex);
+                long label = labelEncoding.encode(value, params, input.getTier(), cellIndex);
+                for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
+                    if (((label >>> (labelBitLength - 1 - bitIndex)) & 1L) != 0L) {
+                        setLane(labelBits[bitIndex], batchIndex);
                     }
                 }
             } else if (view.isHeavy()) {
                 setLane(heavy, batchIndex);
             }
         }
-        return new LocalPackedWires(singleton, heavy, valueBits);
+        return new LocalPackedWires(singleton, heavy, labelBits);
     }
 
     private static void setLane(long[] blocks, int laneIndex) {
         blocks[laneIndex >>> 6] |= 1L << (laneIndex & (Long.SIZE - 1));
     }
 
-    private record LocalPackedWires(long[] singleton, long[] heavy, long[][] valueBits) {
+    private record LocalPackedWires(long[] singleton, long[] heavy, long[][] labelBits) {
         // empty
     }
 }

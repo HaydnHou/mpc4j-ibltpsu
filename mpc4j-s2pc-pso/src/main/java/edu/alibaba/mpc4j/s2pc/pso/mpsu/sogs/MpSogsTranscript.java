@@ -18,22 +18,41 @@ public class MpSogsTranscript {
     private final boolean success;
     private final String failureReason;
     private final int hashSeedAttempts;
+    /**
+     * Local no-communication SOGS sketch construction time.
+     */
+    private final long offlineMs;
+    /**
+     * Protocol time measured inside the runner after local sketch construction.
+     */
+    private final long onlineMs;
 
     public MpSogsTranscript(Set<Long> unionOutput, List<MpSogsRoundStats> roundStats, boolean success,
                             String failureReason) {
-        this(unionOutput, roundStats, success, failureReason, 1);
+        this(unionOutput, roundStats, success, failureReason, 1, 0L, 0L);
     }
 
     public MpSogsTranscript(Set<Long> unionOutput, List<MpSogsRoundStats> roundStats, boolean success,
                             String failureReason, int hashSeedAttempts) {
+        this(unionOutput, roundStats, success, failureReason, hashSeedAttempts, 0L, 0L);
+    }
+
+    public MpSogsTranscript(Set<Long> unionOutput, List<MpSogsRoundStats> roundStats, boolean success,
+                            String failureReason, int hashSeedAttempts, long offlineMs, long onlineMs) {
         if (hashSeedAttempts <= 0) {
             throw new IllegalArgumentException("hashSeedAttempts must be positive: " + hashSeedAttempts);
+        }
+        if (offlineMs < 0 || onlineMs < 0) {
+            throw new IllegalArgumentException("timings must be non-negative: offline=" + offlineMs
+                + ", online=" + onlineMs);
         }
         this.unionOutput = Collections.unmodifiableSet(new LinkedHashSet<>(unionOutput));
         this.roundStats = Collections.unmodifiableList(new ArrayList<>(roundStats));
         this.success = success;
         this.failureReason = failureReason;
         this.hashSeedAttempts = hashSeedAttempts;
+        this.offlineMs = offlineMs;
+        this.onlineMs = onlineMs;
     }
 
     public Set<Long> getUnionOutput() {
@@ -54,6 +73,14 @@ public class MpSogsTranscript {
 
     public int getHashSeedAttempts() {
         return hashSeedAttempts;
+    }
+
+    public long getOfflineMs() {
+        return offlineMs;
+    }
+
+    public long getOnlineMs() {
+        return onlineMs;
     }
 
     public int getRoundNum() {

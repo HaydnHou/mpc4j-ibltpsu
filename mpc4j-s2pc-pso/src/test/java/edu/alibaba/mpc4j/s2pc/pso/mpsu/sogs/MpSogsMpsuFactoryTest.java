@@ -1,6 +1,7 @@
 package edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs;
 
 import edu.alibaba.mpc4j.common.rpc.desc.SecurityModel;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.multiplicity.SsmOpeningMode;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -34,6 +35,164 @@ public class MpSogsMpsuFactoryTest {
     public void testDefaultFourPartyConfigUsesShamir() {
         MpSogsMpsuConfig config = MpSogsMpsuFactory.createDefaultConfig(SecurityModel.SEMI_HONEST, 4, 256);
         Assert.assertEquals(MpSogsMpsuConfig.SecurePeelType.SHAMIR, config.getSecurePeelType());
+    }
+
+    @Test
+    public void testShamirMultiplicityConfigAcceptsFiveParty() {
+        MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(
+            new MpSogsMpsuParams.Builder(5, 256).build()
+        )
+            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY)
+            .build();
+        Assert.assertEquals(MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY, config.getSecurePeelType());
+    }
+
+    @Test
+    public void testPersistentShamirMultiplicityConfigAcceptsFiveParty() {
+        MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(
+            new MpSogsMpsuParams.Builder(5, 256).build()
+        )
+            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT)
+            .build();
+        Assert.assertEquals(
+            MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT, config.getSecurePeelType()
+        );
+    }
+
+    @Test
+    public void testPersistentQuotientMultiplicityConfigAcceptsFiveParty() {
+        MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(
+            new MpSogsMpsuParams.Builder(5, 256).build()
+        )
+            .setSecurePeelType(
+                MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT
+            )
+            .build();
+        Assert.assertEquals(
+            MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT,
+            config.getSecurePeelType()
+        );
+    }
+
+    @Test
+    public void testPersistentQuotientPrssMultiplicityConfigAcceptsFiveParty() {
+        MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(
+            new MpSogsMpsuParams.Builder(5, 256).build()
+        )
+            .setSecurePeelType(
+                MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS
+            )
+            .build();
+        Assert.assertEquals(
+            MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS,
+            config.getSecurePeelType()
+        );
+    }
+
+    @Test
+    public void testDoubleShareMultiplicityConfigAcceptsFiveParty() {
+        MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(
+            new MpSogsMpsuParams.Builder(5, 256).build()
+        )
+            .setSecurePeelType(
+                MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_DOUBLE_SHARE
+            )
+            .build();
+        Assert.assertEquals(
+            MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_DOUBLE_SHARE,
+            config.getSecurePeelType()
+        );
+    }
+
+    @Test
+    public void testRttAwareMultiplicityConfigAcceptsFiveParty() {
+        MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(
+            new MpSogsMpsuParams.Builder(5, 256).build()
+        )
+            .setSecurePeelType(
+                MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_RTT_AWARE
+            )
+            .setSsmOpeningMode(SsmOpeningMode.AUTO)
+            .setNetworkRttMillis(50.0)
+            .setNetworkBandwidthMbps(100.0)
+            .build();
+        Assert.assertEquals(
+            MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_RTT_AWARE,
+            config.getSecurePeelType()
+        );
+        Assert.assertEquals(SsmOpeningMode.AUTO, config.getSsmOpeningMode());
+        Assert.assertEquals(50.0, config.getNetworkRttMillis(), 0.0);
+        Assert.assertEquals(100.0, config.getNetworkBandwidthMbps(), 0.0);
+    }
+
+    @Test
+    public void testPackedRttAwareMultiplicityConfigAcceptsFiveParty() {
+        MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(
+            new MpSogsMpsuParams.Builder(5, 256).build()
+        )
+            .setSecurePeelType(
+                MpSogsMpsuConfig.SecurePeelType
+                    .SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_RTT_AWARE_PACKED
+            )
+            .setSsmOpeningMode(SsmOpeningMode.AUTO)
+            .setNetworkRttMillis(50.0)
+            .setNetworkBandwidthMbps(100.0)
+            .build();
+        Assert.assertEquals(
+            MpSogsMpsuConfig.SecurePeelType
+                .SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_RTT_AWARE_PACKED,
+            config.getSecurePeelType()
+        );
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testShamirMultiplicityConfigRejectsTwoParty() {
+        new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(2, 256).build())
+            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY)
+            .build();
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testPersistentShamirMultiplicityConfigRejectsTwoParty() {
+        new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(2, 256).build())
+            .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT)
+            .build();
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testPersistentQuotientMultiplicityConfigRejectsTwoParty() {
+        new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(2, 256).build())
+            .setSecurePeelType(
+                MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT
+            )
+            .build();
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testPersistentQuotientPrssMultiplicityConfigRejectsTwoParty() {
+        new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(2, 256).build())
+            .setSecurePeelType(
+                MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS
+            )
+            .build();
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testDoubleShareMultiplicityConfigRejectsTwoParty() {
+        new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(2, 256).build())
+            .setSecurePeelType(
+                MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_DOUBLE_SHARE
+            )
+            .build();
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testRttAwareMultiplicityConfigRejectsTwoParty() {
+        new MpSogsMpsuConfig.Builder(new MpSogsMpsuParams.Builder(2, 256).build())
+            .setSecurePeelType(
+                MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_RTT_AWARE
+            )
+            .build();
     }
 
     @Test

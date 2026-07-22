@@ -59,12 +59,19 @@ public class Rep4PrssMpSogsMpsuPartyRunner {
     public MpSogsTranscript run(Set<Long> localInput, Set<Long> expectedUnion) {
         List<MpSogsRoundStats> aggregateStats = new ArrayList<>();
         MpSogsTranscript lastTranscript = null;
+        long aggregateOfflineMs = 0L;
+        long aggregateOnlineMs = 0L;
         for (int retryIndex = 0; retryIndex < config.getMaxHashSeedRetries(); retryIndex++) {
             MpSogsMpsuParams params = deriveRetryParams(config.getParams(), retryIndex);
             MpSogsTranscript transcript = runSingleAttempt(localInput, expectedUnion, params, retryIndex);
             aggregateStats.addAll(transcript.getRoundStats());
+            aggregateOfflineMs += transcript.getOfflineMs();
+            aggregateOnlineMs += transcript.getOnlineMs();
             if (transcript.isSuccess()) {
-                return new MpSogsTranscript(transcript.getUnionOutput(), aggregateStats, true, "", retryIndex + 1);
+                return new MpSogsTranscript(
+                    transcript.getUnionOutput(), aggregateStats, true, "", retryIndex + 1,
+                    aggregateOfflineMs, aggregateOnlineMs
+                );
             }
             lastTranscript = transcript;
         }
@@ -75,17 +82,21 @@ public class Rep4PrssMpSogsMpsuPartyRunner {
             lastTranscript.getUnionOutput(), aggregateStats, false,
             lastTranscript.getFailureReason() + " after " + config.getMaxHashSeedRetries()
                 + " public hash-seed attempt(s)",
-            config.getMaxHashSeedRetries()
+            config.getMaxHashSeedRetries(), aggregateOfflineMs, aggregateOnlineMs
         );
     }
 
     private MpSogsTranscript runSingleAttempt(Set<Long> localInput, Set<Long> expectedUnion,
                                               MpSogsMpsuParams params, int retryIndex) {
+        long offlineStart = System.nanoTime();
         MpSogsSketch localSketch = MpSogsSketch.encode(localInput, params);
+        long offlineMs = (System.nanoTime() - offlineStart) / 1_000_000L;
+        long onlineStart = System.nanoTime();
         int backendBatchSize = Math.min(config.getMaxBatchCells(), maxTierCellNum(params));
         SecureMpSogsUnionPeel unionPeel = new Rep4PrssSecureMpSogsUnionPeel(
             rpc, localSketch, params, taskId + retryIndex, backendBatchSize,
-            config.getSecurePeelType() == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST
+            config.getSecurePeelType() == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST,
+            config.getLabelEncoding()
         );
         Set<Long> unionOutput = new LinkedHashSet<>();
         List<MpSogsRoundStats> stats = new ArrayList<>();
@@ -93,6 +104,7 @@ public class Rep4PrssMpSogsMpsuPartyRunner {
         int[] queue = allCells(params.getCellNum(tier));
         String failureReason = "";
         boolean residualChecked = false;
+        int residualCheckCounter = 0;
         for (int round = 0; queue.length > 0; round++) {
             if (round >= params.getMaxPeelRounds()) {
                 failureReason = "exceeds max peel rounds";
@@ -106,13 +118,14 @@ public class Rep4PrssMpSogsMpsuPartyRunner {
                 output.sendBytes, output.receiveBytes, output.networkRoundCount
             ));
             if (newlyOpened.isEmpty()) {
-                if (params.isTwoTier() && tier == MpSogsTier.MAIN && openAnyResidual(localSketch)) {
+                boolean anyResidual = openAnyResidual(localSketch, retryIndex, residualCheckCounter++);
+                if (params.isTwoTier() && tier == MpSogsTier.MAIN && anyResidual) {
                     tier = MpSogsTier.AUXILIARY;
                     queue = allCells(params.getCellNum(tier));
                     continue;
                 }
                 residualChecked = true;
-                if (openAnyResidual(localSketch)) {
+                if (anyResidual) {
                     failureReason = "stalled before all residual elements were peeled";
                 }
                 break;
@@ -120,7 +133,8 @@ public class Rep4PrssMpSogsMpsuPartyRunner {
             newlyOpened.forEach(localSketch::deleteIfPresentOnce);
             queue = nextQueueArray(newlyOpened, params, tier);
         }
-        if (failureReason.isEmpty() && !residualChecked && openAnyResidual(localSketch)) {
+        if (failureReason.isEmpty() && !residualChecked
+            && openAnyResidual(localSketch, retryIndex, residualCheckCounter++)) {
             failureReason = "queue exhausted before all residual elements were peeled";
         }
         boolean success = failureReason.isEmpty();
@@ -130,7 +144,8 @@ public class Rep4PrssMpSogsMpsuPartyRunner {
                 failureReason = "union output does not match expected union";
             }
         }
-        return new MpSogsTranscript(unionOutput, stats, success, failureReason);
+        long onlineMs = (System.nanoTime() - onlineStart) / 1_000_000L;
+        return new MpSogsTranscript(unionOutput, stats, success, failureReason, 1, offlineMs, onlineMs);
     }
 
     private PeelRoundOutput peelQueueInChunks(SecureMpSogsUnionPeel unionPeel, int round, MpSogsTier tier,
@@ -165,8 +180,9 @@ public class Rep4PrssMpSogsMpsuPartyRunner {
         return new PeelRoundOutput(newlyOpened, openedBatchSize, sendBytes, receiveBytes, networkRoundCount);
     }
 
-    private boolean openAnyResidual(MpSogsSketch localSketch) {
-        Rep4PrssPackedBooleanBackend backend = new Rep4PrssPackedBooleanBackend(rpc, 1, taskId + 0x4E17_0000L);
+    private boolean openAnyResidual(MpSogsSketch localSketch, int retryIndex, int residualCheckIndex) {
+        long rcTaskId = taskId + 0x4E17_0000L + (((long) retryIndex) << 32) + residualCheckIndex;
+        Rep4PrssPackedBooleanBackend backend = new Rep4PrssPackedBooleanBackend(rpc, 1, rcTaskId);
         long[] localResidual = new long[]{localSketch.getRemainingElements().isEmpty() ? 0L : 1L};
         Rep4PrssPackedBooleanShare[] sharesByParty = backend.shareOwnAndReceiveAll(localResidual);
         PackedOrAccumulator accumulator = new PackedOrAccumulator(backend);

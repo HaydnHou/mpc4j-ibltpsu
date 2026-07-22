@@ -27,11 +27,23 @@ public class Rep4PrssMpSogsMpsuPartyRunnerTest {
 
     @Test
     public void testFourPartyOpenedFirstAllOutput() throws InterruptedException {
-        testFourPartyAllOutput(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST);
+        testFourPartyAllOutput(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST,
+            MpSogsLabelEncoding.FULL_VALUE);
+    }
+
+    @Test
+    public void testFourPartyExactQuotientAllOutput() throws InterruptedException {
+        testFourPartyAllOutput(MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST,
+            MpSogsLabelEncoding.EXACT_QUOTIENT);
     }
 
     private void testFourPartyAllOutput(MpSogsMpsuConfig.SecurePeelType securePeelType)
         throws InterruptedException {
+        testFourPartyAllOutput(securePeelType, MpSogsLabelEncoding.FULL_VALUE);
+    }
+
+    private void testFourPartyAllOutput(MpSogsMpsuConfig.SecurePeelType securePeelType,
+                                        MpSogsLabelEncoding labelEncoding) throws InterruptedException {
         List<Set<Long>> inputs = generateInputs(4, 8, 0.5);
         Set<Long> expectedUnion = union(inputs);
         MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(4, expectedUnion.size())
@@ -40,6 +52,7 @@ public class Rep4PrssMpSogsMpsuPartyRunnerTest {
             .build();
         MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(params)
             .setSecurePeelType(securePeelType)
+            .setLabelEncoding(labelEncoding)
             .setMaxHashSeedRetries(8)
             .build();
         MemoryRpcManager rpcManager = new MemoryRpcManager(4);

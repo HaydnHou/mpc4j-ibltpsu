@@ -256,7 +256,7 @@ public class MpSogsMpsuParams {
             this.tauMax = tauMax;
             alpha = DEFAULT_ALPHA;
             hashNum = DEFAULT_HASH_NUM;
-            twoTier = false;
+            twoTier = true;
             auxiliaryHashNum = DEFAULT_HASH_NUM;
             auxiliaryCellNum = DEFAULT_AUXILIARY_CELL_NUM;
             hashSeed = DEFAULT_HASH_SEED;

@@ -57,12 +57,19 @@ public class Rep4MpSogsMpsuPartyRunner {
     public MpSogsTranscript run(Set<Long> localInput, Set<Long> expectedUnion) {
         List<MpSogsRoundStats> aggregateStats = new ArrayList<>();
         MpSogsTranscript lastTranscript = null;
+        long aggregateOfflineMs = 0L;
+        long aggregateOnlineMs = 0L;
         for (int retryIndex = 0; retryIndex < config.getMaxHashSeedRetries(); retryIndex++) {
             MpSogsMpsuParams params = deriveRetryParams(config.getParams(), retryIndex);
             MpSogsTranscript transcript = runSingleAttempt(localInput, expectedUnion, params, retryIndex);
             aggregateStats.addAll(transcript.getRoundStats());
+            aggregateOfflineMs += transcript.getOfflineMs();
+            aggregateOnlineMs += transcript.getOnlineMs();
             if (transcript.isSuccess()) {
-                return new MpSogsTranscript(transcript.getUnionOutput(), aggregateStats, true, "", retryIndex + 1);
+                return new MpSogsTranscript(
+                    transcript.getUnionOutput(), aggregateStats, true, "", retryIndex + 1,
+                    aggregateOfflineMs, aggregateOnlineMs
+                );
             }
             lastTranscript = transcript;
         }
@@ -73,16 +80,19 @@ public class Rep4MpSogsMpsuPartyRunner {
             lastTranscript.getUnionOutput(), aggregateStats, false,
             lastTranscript.getFailureReason() + " after " + config.getMaxHashSeedRetries()
                 + " public hash-seed attempt(s)",
-            config.getMaxHashSeedRetries()
+            config.getMaxHashSeedRetries(), aggregateOfflineMs, aggregateOnlineMs
         );
     }
 
     private MpSogsTranscript runSingleAttempt(Set<Long> localInput, Set<Long> expectedUnion,
                                               MpSogsMpsuParams params, int retryIndex) {
+        long offlineStart = System.nanoTime();
         MpSogsSketch localSketch = MpSogsSketch.encode(localInput, params);
+        long offlineMs = (System.nanoTime() - offlineStart) / 1_000_000L;
+        long onlineStart = System.nanoTime();
         int backendBatchSize = Math.min(config.getMaxBatchCells(), maxTierCellNum(params));
         SecureMpSogsUnionPeel unionPeel = new Rep4SecureMpSogsUnionPeel(
-            rpc, localSketch, params, taskId + retryIndex, backendBatchSize
+            rpc, localSketch, params, taskId + retryIndex, backendBatchSize, config.getLabelEncoding()
         );
         Set<Long> unionOutput = new LinkedHashSet<>();
         List<MpSogsRoundStats> stats = new ArrayList<>();
@@ -103,13 +113,14 @@ public class Rep4MpSogsMpsuPartyRunner {
                 output.sendBytes, output.receiveBytes, output.networkRoundCount
             ));
             if (newlyOpened.isEmpty()) {
-                if (params.isTwoTier() && tier == MpSogsTier.MAIN && openAnyResidual(localSketch)) {
+                boolean anyResidual = openAnyResidual(localSketch);
+                if (params.isTwoTier() && tier == MpSogsTier.MAIN && anyResidual) {
                     tier = MpSogsTier.AUXILIARY;
                     queue = allCells(params.getCellNum(tier));
                     continue;
                 }
                 residualChecked = true;
-                if (openAnyResidual(localSketch)) {
+                if (anyResidual) {
                     failureReason = "stalled before all residual elements were peeled";
                 }
                 break;
@@ -127,7 +138,8 @@ public class Rep4MpSogsMpsuPartyRunner {
                 failureReason = "union output does not match expected union";
             }
         }
-        return new MpSogsTranscript(unionOutput, stats, success, failureReason);
+        long onlineMs = (System.nanoTime() - onlineStart) / 1_000_000L;
+        return new MpSogsTranscript(unionOutput, stats, success, failureReason, 1, offlineMs, onlineMs);
     }
 
     private PeelRoundOutput peelQueueInChunks(SecureMpSogsUnionPeel unionPeel, int round, MpSogsTier tier,

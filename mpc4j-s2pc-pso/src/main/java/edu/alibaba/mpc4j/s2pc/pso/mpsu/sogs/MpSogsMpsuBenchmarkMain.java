@@ -3,6 +3,9 @@ package edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs;
 import edu.alibaba.mpc4j.common.rpc.Rpc;
 import edu.alibaba.mpc4j.common.rpc.impl.memory.MemoryRpcManager;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.abb3.Abb3MpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.multiplicity.ShamirMultiplicityMpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.multiplicity.PersistentShamirMultiplicityMpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.multiplicity.SsmOpeningMode;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4.Rep4MpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4prss.Rep4PrssMpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep5prss.Rep5PrssMpSogsMpsuPartyRunner;
@@ -68,6 +71,10 @@ public class MpSogsMpsuBenchmarkMain {
             .build();
         MpSogsMpsuConfig ptoConfig = new MpSogsMpsuConfig.Builder(params)
             .setSecurePeelType(securePeelType)
+            .setLabelEncoding(config.labelEncoding)
+            .setSsmOpeningMode(config.ssmOpeningMode)
+            .setNetworkRttMillis(config.networkRttMillis)
+            .setNetworkBandwidthMbps(config.networkBandwidthMbps)
             .setMaxHashSeedRetries(config.maxHashSeedRetries)
             .setMaxBatchCells(config.maxBatchCells)
             .build();
@@ -122,6 +129,30 @@ public class MpSogsMpsuBenchmarkMain {
         if (securePeelType == MpSogsMpsuConfig.SecurePeelType.SHAMIR) {
             return IntStream.range(0, config.partyNum)
                 .mapToObj(partyIndex -> new ShamirBenchmarkThread(
+                    rpcs[partyIndex], inputs.get(partyIndex), expectedUnion, ptoConfig, config.taskId + trialIndex
+                ))
+                .toArray(BenchmarkThread[]::new);
+        }
+        if (securePeelType == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY) {
+            return IntStream.range(0, config.partyNum)
+                .mapToObj(partyIndex -> new ShamirMultiplicityBenchmarkThread(
+                    rpcs[partyIndex], inputs.get(partyIndex), expectedUnion, ptoConfig, config.taskId + trialIndex
+                ))
+                .toArray(BenchmarkThread[]::new);
+        }
+        if (securePeelType == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT
+            || securePeelType
+            == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT
+            || securePeelType
+            == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS
+            || securePeelType
+            == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_DOUBLE_SHARE
+            || securePeelType
+            == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_RTT_AWARE
+            || securePeelType
+            == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_RTT_AWARE_PACKED) {
+            return IntStream.range(0, config.partyNum)
+                .mapToObj(partyIndex -> new PersistentShamirMultiplicityBenchmarkThread(
                     rpcs[partyIndex], inputs.get(partyIndex), expectedUnion, ptoConfig, config.taskId + trialIndex
                 ))
                 .toArray(BenchmarkThread[]::new);
@@ -244,7 +275,7 @@ public class MpSogsMpsuBenchmarkMain {
         private double commonOverlap = 0.5;
         private double alpha = MpSogsMpsuParams.DEFAULT_ALPHA;
         private int hashNum = MpSogsMpsuParams.DEFAULT_HASH_NUM;
-        private boolean twoTier = false;
+        private boolean twoTier = true;
         private int auxiliaryHashNum = MpSogsMpsuParams.DEFAULT_HASH_NUM;
         private int auxiliaryCellNum = MpSogsMpsuParams.DEFAULT_AUXILIARY_CELL_NUM;
         private long hashSeed = MpSogsMpsuParams.DEFAULT_HASH_SEED;
@@ -258,6 +289,10 @@ public class MpSogsMpsuBenchmarkMain {
         private int maxBatchCells = MpSogsMpsuConfig.DEFAULT_MAX_BATCH_CELLS;
         private int crBufferByteSize = 1 << 24;
         private MpSogsMpsuConfig.SecurePeelType securePeelType;
+        private MpSogsLabelEncoding labelEncoding = MpSogsLabelEncoding.EXACT_QUOTIENT;
+        private SsmOpeningMode ssmOpeningMode = SsmOpeningMode.BALANCED_TWO_PHASE;
+        private double networkRttMillis;
+        private double networkBandwidthMbps;
 
         public static BenchmarkConfig fromArgs(String[] args) {
             BenchmarkConfig config = new BenchmarkConfig();
@@ -336,6 +371,22 @@ public class MpSogsMpsuBenchmarkMain {
                     case "secure_peel_type":
                         config.securePeelType = MpSogsMpsuConfig.SecurePeelType.valueOf(value.toUpperCase(Locale.ROOT));
                         break;
+                    case "labelencoding":
+                    case "label_encoding":
+                        config.labelEncoding = MpSogsLabelEncoding.valueOf(value.toUpperCase(Locale.ROOT));
+                        break;
+                    case "ssmopeningmode":
+                    case "ssm_opening_mode":
+                        config.ssmOpeningMode = SsmOpeningMode.valueOf(value.toUpperCase(Locale.ROOT));
+                        break;
+                    case "networkrttms":
+                    case "network_rtt_ms":
+                        config.networkRttMillis = Double.parseDouble(value);
+                        break;
+                    case "networkbandwidthmbps":
+                    case "network_bandwidth_mbps":
+                        config.networkBandwidthMbps = Double.parseDouble(value);
+                        break;
                     default:
                         throw new IllegalArgumentException("unknown argument: " + arg);
                 }
@@ -387,10 +438,11 @@ public class MpSogsMpsuBenchmarkMain {
         }
 
         private static String csvHeader() {
-            return "trial,party,n,union_size,overlap,alpha,k,two_tier,aux_k,aux_cells,"
+            return "trial,party,secure_peel_type,ssm_opening_mode,network_rtt_ms,network_bandwidth_mbps,"
+                + "n,union_size,overlap,alpha,k,two_tier,label_encoding,aux_k,aux_cells,"
                 + "max_hash_seed_retries,max_batch_cells,"
                 + "cr_buffer_byte_size,hash_seed_attempts,success,"
-                + "rounds,upeel_calls,send_bytes,time_ms,failure_reason";
+                + "rounds,upeel_calls,send_bytes,offline_ms,online_ms,time_ms,failure_reason";
         }
     }
 
@@ -429,12 +481,17 @@ public class MpSogsMpsuBenchmarkMain {
         private String toCsvLine(BenchmarkResult result) {
             return result.trialIndex + ","
                 + partyIndex + ","
+                + result.config.effectiveSecurePeelType() + ","
+                + result.config.ssmOpeningMode + ","
+                + result.config.networkRttMillis + ","
+                + result.config.networkBandwidthMbps + ","
                 + result.config.n + ","
                 + result.unionSize + ","
                 + result.config.commonOverlap + ","
                 + result.config.alpha + ","
                 + result.config.hashNum + ","
                 + result.config.twoTier + ","
+                + result.config.labelEncoding + ","
                 + result.config.auxiliaryHashNum + ","
                 + result.config.auxiliaryCellNum + ","
                 + result.config.maxHashSeedRetries + ","
@@ -445,6 +502,8 @@ public class MpSogsMpsuBenchmarkMain {
                 + transcript.getRoundNum() + ","
                 + transcript.getUpeelCalls() + ","
                 + sendBytes + ","
+                + transcript.getOfflineMs() + ","
+                + Math.max(0L, timeMs - transcript.getOfflineMs()) + ","
                 + timeMs + ","
                 + csvEscape(transcript.getFailureReason());
         }
@@ -537,6 +596,60 @@ public class MpSogsMpsuBenchmarkMain {
         @Override
         MpSogsTranscript runProtocol() {
             return new ShamirMpSogsMpsuPartyRunner(rpc, config, taskId).run(localInput, expectedUnion);
+        }
+    }
+
+    /**
+     * Secret-shared multiplicity Shamir benchmark participant thread.
+     */
+    private static class ShamirMultiplicityBenchmarkThread extends BenchmarkThread {
+        private final Rpc rpc;
+        private final Set<Long> localInput;
+        private final Set<Long> expectedUnion;
+        private final MpSogsMpsuConfig config;
+        private final long taskId;
+
+        private ShamirMultiplicityBenchmarkThread(Rpc rpc, Set<Long> localInput, Set<Long> expectedUnion,
+                                                  MpSogsMpsuConfig config, long taskId) {
+            super("mp-sogs-shamir-multiplicity-party-" + rpc.ownParty().getPartyId());
+            this.rpc = rpc;
+            this.localInput = localInput;
+            this.expectedUnion = expectedUnion;
+            this.config = config;
+            this.taskId = taskId;
+        }
+
+        @Override
+        MpSogsTranscript runProtocol() {
+            return new ShamirMultiplicityMpSogsMpsuPartyRunner(rpc, config, taskId)
+                .run(localInput, expectedUnion);
+        }
+    }
+
+    /**
+     * Persistent secret-shared multiplicity Shamir benchmark participant thread.
+     */
+    private static class PersistentShamirMultiplicityBenchmarkThread extends BenchmarkThread {
+        private final Rpc rpc;
+        private final Set<Long> localInput;
+        private final Set<Long> expectedUnion;
+        private final MpSogsMpsuConfig config;
+        private final long taskId;
+
+        private PersistentShamirMultiplicityBenchmarkThread(Rpc rpc, Set<Long> localInput, Set<Long> expectedUnion,
+                                                            MpSogsMpsuConfig config, long taskId) {
+            super("mp-sogs-shamir-multiplicity-persistent-party-" + rpc.ownParty().getPartyId());
+            this.rpc = rpc;
+            this.localInput = localInput;
+            this.expectedUnion = expectedUnion;
+            this.config = config;
+            this.taskId = taskId;
+        }
+
+        @Override
+        MpSogsTranscript runProtocol() {
+            return new PersistentShamirMultiplicityMpSogsMpsuPartyRunner(rpc, config, taskId)
+                .run(localInput, expectedUnion);
         }
     }
 

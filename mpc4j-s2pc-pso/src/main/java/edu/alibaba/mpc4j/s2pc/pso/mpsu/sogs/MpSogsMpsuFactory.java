@@ -3,6 +3,8 @@ package edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs;
 import edu.alibaba.mpc4j.common.rpc.desc.SecurityModel;
 import edu.alibaba.mpc4j.common.rpc.pto.PtoFactory;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.abb3.Abb3MpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.multiplicity.ShamirMultiplicityMpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.multiplicity.PersistentShamirMultiplicityMpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4.Rep4MpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4prss.Rep4PrssMpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep5prss.Rep5PrssMpSogsMpsuPartyRunner;
@@ -85,6 +87,44 @@ public class MpSogsMpsuFactory implements PtoFactory {
         switch (config.getPtoType()) {
             case MP_SOGS:
                 return new ShamirMpSogsMpsuPartyRunner(rpc, config, taskId);
+            default:
+                throw new IllegalArgumentException("Invalid " + MpSogsMpsuType.class.getSimpleName() + ": "
+                    + config.getPtoType());
+        }
+    }
+
+    /**
+     * Creates a secret-shared multiplicity Shamir party-local runner.
+     *
+     * @param rpc RPC.
+     * @param config config.
+     * @param taskId task id.
+     * @return multiplicity Shamir party-local runner.
+     */
+    public static ShamirMultiplicityMpSogsMpsuPartyRunner createShamirMultiplicityPartyRunner(
+        Rpc rpc, MpSogsMpsuConfig config, long taskId) {
+        switch (config.getPtoType()) {
+            case MP_SOGS:
+                return new ShamirMultiplicityMpSogsMpsuPartyRunner(rpc, config, taskId);
+            default:
+                throw new IllegalArgumentException("Invalid " + MpSogsMpsuType.class.getSimpleName() + ": "
+                    + config.getPtoType());
+        }
+    }
+
+    /**
+     * Creates a persistent secret-shared multiplicity Shamir party-local runner.
+     *
+     * @param rpc RPC.
+     * @param config config.
+     * @param taskId task id.
+     * @return persistent multiplicity Shamir party-local runner.
+     */
+    public static PersistentShamirMultiplicityMpSogsMpsuPartyRunner
+        createPersistentShamirMultiplicityPartyRunner(Rpc rpc, MpSogsMpsuConfig config, long taskId) {
+        switch (config.getPtoType()) {
+            case MP_SOGS:
+                return new PersistentShamirMultiplicityMpSogsMpsuPartyRunner(rpc, config, taskId);
             default:
                 throw new IllegalArgumentException("Invalid " + MpSogsMpsuType.class.getSimpleName() + ": "
                     + config.getPtoType());

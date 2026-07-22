@@ -22,11 +22,23 @@ import java.util.stream.IntStream;
 public class Rep5PrssMpSogsMpsuPartyRunnerTest {
     @Test
     public void testFivePartyOpenedFirstAllOutput() throws InterruptedException {
-        testFivePartyAllOutput(MpSogsMpsuConfig.SecurePeelType.REP5_PRSS_OPENED_FIRST);
+        testFivePartyAllOutput(MpSogsMpsuConfig.SecurePeelType.REP5_PRSS_OPENED_FIRST,
+            MpSogsLabelEncoding.FULL_VALUE);
+    }
+
+    @Test
+    public void testFivePartyExactQuotientAllOutput() throws InterruptedException {
+        testFivePartyAllOutput(MpSogsMpsuConfig.SecurePeelType.REP5_PRSS_OPENED_FIRST,
+            MpSogsLabelEncoding.EXACT_QUOTIENT);
     }
 
     private void testFivePartyAllOutput(MpSogsMpsuConfig.SecurePeelType securePeelType)
         throws InterruptedException {
+        testFivePartyAllOutput(securePeelType, MpSogsLabelEncoding.FULL_VALUE);
+    }
+
+    private void testFivePartyAllOutput(MpSogsMpsuConfig.SecurePeelType securePeelType,
+                                        MpSogsLabelEncoding labelEncoding) throws InterruptedException {
         List<Set<Long>> inputs = generateInputs(5, 8, 0.5);
         Set<Long> expectedUnion = union(inputs);
         MpSogsMpsuParams params = new MpSogsMpsuParams.Builder(5, expectedUnion.size())
@@ -35,6 +47,7 @@ public class Rep5PrssMpSogsMpsuPartyRunnerTest {
             .build();
         MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(params)
             .setSecurePeelType(securePeelType)
+            .setLabelEncoding(labelEncoding)
             .setMaxHashSeedRetries(8)
             .build();
         MemoryRpcManager rpcManager = new MemoryRpcManager(5);

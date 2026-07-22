@@ -4,6 +4,7 @@ import edu.alibaba.mpc4j.common.rpc.Rpc;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.BatchMpSogsPeelInput;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.BatchMpSogsPeelOutput;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsLocalCellView;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsLabelEncoding;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsMpsuParams;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsPeelResult;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsSketch;
@@ -24,17 +25,9 @@ import java.util.List;
  */
 public class ShamirSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
     /**
-     * Number of element bits.
-     */
-    private static final int ELEMENT_BITS = MpSogsMpsuParams.ELEMENT_BIT_LENGTH;
-    /**
      * Local state bit count: singleton and heavy.
      */
     private static final int STATE_BIT_NUM = 2;
-    /**
-     * Per-cell input wire count.
-     */
-    private static final int INPUTS_PER_CELL = STATE_BIT_NUM + ELEMENT_BITS;
     /**
      * Singleton offset.
      */
@@ -51,11 +44,18 @@ public class ShamirSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
     private final ShamirMpc mpc;
     private final MpSogsSketch localSketch;
     private final MpSogsMpsuParams params;
+    private final MpSogsLabelEncoding labelEncoding;
 
     public ShamirSecureMpSogsUnionPeel(Rpc rpc, MpSogsSketch localSketch, MpSogsMpsuParams params, long taskId) {
+        this(rpc, localSketch, params, taskId, MpSogsLabelEncoding.FULL_VALUE);
+    }
+
+    public ShamirSecureMpSogsUnionPeel(Rpc rpc, MpSogsSketch localSketch, MpSogsMpsuParams params, long taskId,
+                                       MpSogsLabelEncoding labelEncoding) {
         this.mpc = new ShamirMpc(rpc, taskId);
         this.localSketch = localSketch;
         this.params = params;
+        this.labelEncoding = labelEncoding;
         if (mpc.getPartyNum() != params.getPartyNum()) {
             throw new IllegalArgumentException("RPC party count does not match MP-SOGS partyNum");
         }
@@ -70,28 +70,35 @@ public class ShamirSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
             return new BatchMpSogsPeelOutput(List.of(), 0L, 0L, 0);
         }
         mpc.resetNetworkRoundCount();
-        long[][] sharesByParty = mpc.shareOwnAndReceiveAll(encodeLocalInput(input));
-        CircuitInput circuitInput = extractCircuitInput(sharesByParty, input.size());
+        int labelBitLength = labelEncoding.bitLength(params, input.getTier());
+        int inputsPerCell = STATE_BIT_NUM + labelBitLength;
+        long[][] sharesByParty = mpc.shareOwnAndReceiveAll(encodeLocalInput(input, labelBitLength));
+        CircuitInput circuitInput = extractCircuitInput(sharesByParty, input.size(), labelBitLength, inputsPerCell);
         long[] openedShares = evaluateOpened(circuitInput, input.size());
         long[] opened = mpc.open(openedShares);
         int[] selectedIndexes = selectedIndexes(opened);
-        long[] selectedValues = selectedIndexes.length == 0
+        long[] selectedLabels = selectedIndexes.length == 0
             ? new long[0]
             : mpc.open(flatten(evaluateCandidateBits(circuitInput, selectedIndexes), selectedIndexes.length));
         return new BatchMpSogsPeelOutput(
-            decodeResults(opened, selectedIndexes, selectedValues, input.size()), 0L, 0L, mpc.getNetworkRoundCount()
+            decodeResults(opened, selectedIndexes, selectedLabels, input, labelBitLength),
+            0L, 0L, mpc.getNetworkRoundCount()
         );
     }
 
-    private long[] encodeLocalInput(BatchMpSogsPeelInput input) {
-        long[] values = new long[input.size() * INPUTS_PER_CELL];
+    private long[] encodeLocalInput(BatchMpSogsPeelInput input, int labelBitLength) {
+        int inputsPerCell = STATE_BIT_NUM + labelBitLength;
+        long[] values = new long[input.size() * inputsPerCell];
         for (int batchIndex = 0; batchIndex < input.size(); batchIndex++) {
             int cellIndex = input.getCellIndexes().get(batchIndex);
             MpSogsLocalCellView view = localSketch.localCellView(input.getTier(), cellIndex);
-            int base = batchIndex * INPUTS_PER_CELL;
+            int base = batchIndex * inputsPerCell;
             if (view.isSingleton()) {
                 values[base + SINGLETON_OFFSET] = 1L;
-                setValueBits(values, base + VALUE_OFFSET, view.getSingletonValue());
+                long label = labelEncoding.encode(
+                    view.getSingletonValue(), params, input.getTier(), cellIndex
+                );
+                setLabelBits(values, base + VALUE_OFFSET, label, labelBitLength);
             } else if (view.isHeavy()) {
                 values[base + HEAVY_OFFSET] = 1L;
             }
@@ -99,21 +106,26 @@ public class ShamirSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         return values;
     }
 
-    private CircuitInput extractCircuitInput(long[][] sharesByParty, int batchSize) {
+    private CircuitInput extractCircuitInput(long[][] sharesByParty, int batchSize, int labelBitLength,
+                                             int inputsPerCell) {
         int partyNum = sharesByParty.length;
         long[][] singleton = new long[partyNum][];
         long[][] heavy = new long[partyNum][];
-        long[][][] valueBits = new long[partyNum][ELEMENT_BITS][];
+        long[][][] labelBits = new long[partyNum][labelBitLength][];
         for (int partyIndex = 0; partyIndex < partyNum; partyIndex++) {
-            singleton[partyIndex] = extractWire(sharesByParty[partyIndex], batchSize, SINGLETON_OFFSET);
-            heavy[partyIndex] = extractWire(sharesByParty[partyIndex], batchSize, HEAVY_OFFSET);
-            for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
-                valueBits[partyIndex][bitIndex] = extractWire(
-                    sharesByParty[partyIndex], batchSize, VALUE_OFFSET + bitIndex
+            singleton[partyIndex] = extractWire(
+                sharesByParty[partyIndex], batchSize, inputsPerCell, SINGLETON_OFFSET
+            );
+            heavy[partyIndex] = extractWire(
+                sharesByParty[partyIndex], batchSize, inputsPerCell, HEAVY_OFFSET
+            );
+            for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
+                labelBits[partyIndex][bitIndex] = extractWire(
+                    sharesByParty[partyIndex], batchSize, inputsPerCell, VALUE_OFFSET + bitIndex
                 );
             }
         }
-        return new CircuitInput(singleton, heavy, valueBits);
+        return new CircuitInput(singleton, heavy, labelBits);
     }
 
     private long[] evaluateOpened(CircuitInput input, int batchSize) {
@@ -124,7 +136,7 @@ public class ShamirSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         for (int i = 0; i < partyNum; i++) {
             for (int j = i + 1; j < partyNum; j++) {
                 long[] bothSingleton = mpc.mul(input.singleton[i], input.singleton[j]);
-                long[] wordDiff = wordDiff(input.valueBits[i], input.valueBits[j], batchSize);
+                long[] wordDiff = wordDiff(input.labelBits[i], input.labelBits[j], batchSize);
                 mismatch = or(mismatch, mpc.mul(bothSingleton, wordDiff));
             }
         }
@@ -135,18 +147,21 @@ public class ShamirSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         int partyNum = input.singleton.length;
         int selectedSize = selectedIndexes.length;
         long[][] selectedSingleton = new long[partyNum][];
-        long[][][] selectedValueBits = new long[partyNum][ELEMENT_BITS][];
+        int labelBitLength = input.labelBits[0].length;
+        long[][][] selectedLabelBits = new long[partyNum][labelBitLength][];
         for (int partyIndex = 0; partyIndex < partyNum; partyIndex++) {
             selectedSingleton[partyIndex] = select(input.singleton[partyIndex], selectedIndexes);
-            for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
-                selectedValueBits[partyIndex][bitIndex] = select(input.valueBits[partyIndex][bitIndex], selectedIndexes);
+            for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
+                selectedLabelBits[partyIndex][bitIndex] = select(
+                    input.labelBits[partyIndex][bitIndex], selectedIndexes
+                );
             }
         }
-        long[][] candidateBits = new long[ELEMENT_BITS][];
-        for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
+        long[][] candidateBits = new long[labelBitLength][];
+        for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
             long[][] terms = new long[partyNum][];
             for (int partyIndex = 0; partyIndex < partyNum; partyIndex++) {
-                terms[partyIndex] = mpc.mul(selectedSingleton[partyIndex], selectedValueBits[partyIndex][bitIndex]);
+                terms[partyIndex] = mpc.mul(selectedSingleton[partyIndex], selectedLabelBits[partyIndex][bitIndex]);
             }
             candidateBits[bitIndex] = orMany(terms, selectedSize);
         }
@@ -155,7 +170,7 @@ public class ShamirSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
 
     private long[] wordDiff(long[][] leftBits, long[][] rightBits, int batchSize) {
         long[] result = ShamirMpc.zeros(batchSize);
-        for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
+        for (int bitIndex = 0; bitIndex < leftBits.length; bitIndex++) {
             result = or(result, xor(leftBits[bitIndex], rightBits[bitIndex]));
         }
         return result;
@@ -181,10 +196,10 @@ public class ShamirSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         return ShamirMpc.sub(ShamirMpc.add(left, right), twoAnd);
     }
 
-    private static long[] extractWire(long[] flattened, int batchSize, int wireOffset) {
+    private static long[] extractWire(long[] flattened, int batchSize, int inputsPerCell, int wireOffset) {
         long[] wire = new long[batchSize];
         for (int batchIndex = 0; batchIndex < batchSize; batchIndex++) {
-            wire[batchIndex] = flattened[batchIndex * INPUTS_PER_CELL + wireOffset];
+            wire[batchIndex] = flattened[batchIndex * inputsPerCell + wireOffset];
         }
         return wire;
     }
@@ -225,17 +240,19 @@ public class ShamirSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         return selected;
     }
 
-    private static List<MpSogsPeelResult> decodeResults(
-        long[] opened, int[] selectedIndexes, long[] selectedValueBits, int batchSize
+    private List<MpSogsPeelResult> decodeResults(
+        long[] opened, int[] selectedIndexes, long[] selectedLabelBits, BatchMpSogsPeelInput input,
+        int labelBitLength
     ) {
+        int batchSize = input.size();
         if (opened.length != batchSize) {
             throw new IllegalArgumentException("invalid opened vector length: " + opened.length);
         }
-        if (selectedValueBits.length != ELEMENT_BITS * selectedIndexes.length) {
-            throw new IllegalArgumentException("invalid selected value vector length: " + selectedValueBits.length);
+        if (selectedLabelBits.length != labelBitLength * selectedIndexes.length) {
+            throw new IllegalArgumentException("invalid selected label vector length: " + selectedLabelBits.length);
         }
         List<MpSogsPeelResult> results = new ArrayList<>(batchSize);
-        long[] selectedValues = decodeSelectedValues(selectedValueBits, selectedIndexes.length);
+        long[] selectedLabels = decodeSelectedLabels(selectedLabelBits, selectedIndexes.length, labelBitLength);
         int selectedIndex = 0;
         for (int batchIndex = 0; batchIndex < batchSize; batchIndex++) {
             if (opened[batchIndex] == 0L) {
@@ -245,28 +262,32 @@ public class ShamirSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
             if (selectedIndexes[selectedIndex] != batchIndex) {
                 throw new IllegalStateException("selected index mismatch");
             }
-            results.add(MpSogsPeelResult.element(selectedValues[selectedIndex++]));
+            int selectedLane = selectedIndexes[selectedIndex];
+            long value = labelEncoding.decode(
+                selectedLabels[selectedIndex++], params, input.getTier(), input.getCellIndexes().get(selectedLane)
+            );
+            results.add(MpSogsPeelResult.element(value));
         }
         return results;
     }
 
-    private static long[] decodeSelectedValues(long[] selectedValueBits, int selectedSize) {
-        long[] selectedValues = new long[selectedSize];
+    private static long[] decodeSelectedLabels(long[] selectedLabelBits, int selectedSize, int labelBitLength) {
+        long[] selectedLabels = new long[selectedSize];
         for (int selectedIndex = 0; selectedIndex < selectedSize; selectedIndex++) {
-            long value = 0L;
-            for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
-                if (selectedValueBits[bitIndex * selectedSize + selectedIndex] != 0L) {
-                    value |= 1L << (ELEMENT_BITS - 1 - bitIndex);
+            long label = 0L;
+            for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
+                if (selectedLabelBits[bitIndex * selectedSize + selectedIndex] != 0L) {
+                    label |= 1L << (labelBitLength - 1 - bitIndex);
                 }
             }
-            selectedValues[selectedIndex] = value;
+            selectedLabels[selectedIndex] = label;
         }
-        return selectedValues;
+        return selectedLabels;
     }
 
-    private static void setValueBits(long[] values, int offset, long value) {
-        for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
-            values[offset + bitIndex] = ((value >>> (ELEMENT_BITS - 1 - bitIndex)) & 1L);
+    private static void setLabelBits(long[] values, int offset, long label, int labelBitLength) {
+        for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
+            values[offset + bitIndex] = ((label >>> (labelBitLength - 1 - bitIndex)) & 1L);
         }
     }
 
@@ -276,12 +297,12 @@ public class ShamirSecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
     private static class CircuitInput {
         private final long[][] singleton;
         private final long[][] heavy;
-        private final long[][][] valueBits;
+        private final long[][][] labelBits;
 
-        private CircuitInput(long[][] singleton, long[][] heavy, long[][][] valueBits) {
+        private CircuitInput(long[][] singleton, long[][] heavy, long[][][] labelBits) {
             this.singleton = singleton;
             this.heavy = heavy;
-            this.valueBits = valueBits;
+            this.labelBits = labelBits;
         }
     }
 }

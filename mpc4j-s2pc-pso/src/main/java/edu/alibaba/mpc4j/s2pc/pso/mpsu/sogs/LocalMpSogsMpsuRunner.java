@@ -37,6 +37,11 @@ public class LocalMpSogsMpsuRunner implements MpSogsMpsuRunner {
                 throw new UnsupportedOperationException(
                     "ABB3 is party-local; use MpSogsMpsuFactory.createAbb3PartyRunner"
                 );
+            case SHAMIR_MULTIPLICITY:
+                throw new UnsupportedOperationException(
+                    "SHAMIR_MULTIPLICITY is party-local; use "
+                        + "MpSogsMpsuFactory.createShamirMultiplicityPartyRunner"
+                );
             case GENERIC_MPC:
             case OPT_BATCH:
             default:

@@ -29,6 +29,15 @@ public class Abb3SecureMpSogsUnionPeelTest extends AbstractThreePartyMemoryRpcPt
 
     @Test
     public void testThreePartySecureUnionPeel() throws InterruptedException {
+        testThreePartySecureUnionPeel(MpSogsLabelEncoding.FULL_VALUE);
+    }
+
+    @Test
+    public void testThreePartyExactQuotientUnionPeel() throws InterruptedException {
+        testThreePartySecureUnionPeel(MpSogsLabelEncoding.EXACT_QUOTIENT);
+    }
+
+    private void testThreePartySecureUnionPeel(MpSogsLabelEncoding labelEncoding) throws InterruptedException {
         List<Set<Long>> partyInputs = List.of(
             Set.of(1L, 2L, 3L, 11L),
             Set.of(2L, 3L, 4L, 12L),
@@ -42,6 +51,7 @@ public class Abb3SecureMpSogsUnionPeelTest extends AbstractThreePartyMemoryRpcPt
             .build();
         MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(params)
             .setSecurePeelType(MpSogsMpsuConfig.SecurePeelType.ABB3)
+            .setLabelEncoding(labelEncoding)
             .build();
         Assert.assertTrue(ClearMpSogsMpsu.run(partyInputs, params).isSuccess());
         TripletZ2cParty[] parties = createParties();

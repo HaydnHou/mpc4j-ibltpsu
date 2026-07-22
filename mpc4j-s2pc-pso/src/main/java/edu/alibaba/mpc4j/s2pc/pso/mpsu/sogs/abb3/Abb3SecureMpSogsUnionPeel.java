@@ -8,6 +8,7 @@ import edu.alibaba.mpc4j.common.tool.bitvector.BitVectorFactory;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.BatchMpSogsPeelInput;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.BatchMpSogsPeelOutput;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsLocalCellView;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsLabelEncoding;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsMpsuParams;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsPeelResult;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsSketch;
@@ -31,10 +32,6 @@ import java.util.List;
  */
 public class Abb3SecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
     /**
-     * Number of element bits.
-     */
-    private static final int ELEMENT_BITS = MpSogsMpsuParams.ELEMENT_BIT_LENGTH;
-    /**
      * Local state bit count: singleton and heavy.
      */
     private static final int STATE_BIT_NUM = 2;
@@ -51,11 +48,6 @@ public class Abb3SecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
      */
     private static final int VALUE_OFFSET = STATE_BIT_NUM;
     /**
-     * Total shared vectors per party input.
-     */
-    private static final int INPUT_VECTOR_NUM = STATE_BIT_NUM + ELEMENT_BITS;
-
-    /**
      * ABB3 Z2 circuit party.
      */
     private final TripletZ2cParty z2cParty;
@@ -67,15 +59,23 @@ public class Abb3SecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
      * Public MP-SOGS parameters.
      */
     private final MpSogsMpsuParams params;
+    /** Secure label representation. */
+    private final MpSogsLabelEncoding labelEncoding;
     /**
      * All participants sorted by public party id.
      */
     private final Party[] parties;
 
     public Abb3SecureMpSogsUnionPeel(TripletZ2cParty z2cParty, MpSogsSketch localSketch, MpSogsMpsuParams params) {
+        this(z2cParty, localSketch, params, MpSogsLabelEncoding.FULL_VALUE);
+    }
+
+    public Abb3SecureMpSogsUnionPeel(TripletZ2cParty z2cParty, MpSogsSketch localSketch, MpSogsMpsuParams params,
+                                     MpSogsLabelEncoding labelEncoding) {
         this.z2cParty = z2cParty;
         this.localSketch = localSketch;
         this.params = params;
+        this.labelEncoding = labelEncoding;
         if (params.getPartyNum() != 3) {
             throw new IllegalArgumentException("ABB3 backend currently supports exactly 3 parties");
         }
@@ -94,22 +94,24 @@ public class Abb3SecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
             return new BatchMpSogsPeelOutput(List.of(), 0L, 0L, 0);
         }
         try {
-            SharedCellBatch[] batches = shareCellBatches(input);
-            CircuitOutput circuitOutput = evaluateCircuit(batches, input.size());
-            MpcZ2Vector[] openInput = new MpcZ2Vector[ELEMENT_BITS + 1];
+            int labelBitLength = labelEncoding.bitLength(params, input.getTier());
+            SharedCellBatch[] batches = shareCellBatches(input, labelBitLength);
+            CircuitOutput circuitOutput = evaluateCircuit(batches, input.size(), labelBitLength);
+            MpcZ2Vector[] openInput = new MpcZ2Vector[labelBitLength + 1];
             openInput[0] = circuitOutput.opened;
-            System.arraycopy(circuitOutput.openedValueBits, 0, openInput, 1, ELEMENT_BITS);
+            System.arraycopy(circuitOutput.openedLabelBits, 0, openInput, 1, labelBitLength);
             BitVector[] openedVectors = z2cParty.open(openInput);
-            List<MpSogsPeelResult> results = decodeResults(openedVectors, input.size());
+            List<MpSogsPeelResult> results = decodeResults(openedVectors, input, labelBitLength);
             return new BatchMpSogsPeelOutput(results, 0L, 0L, 0);
         } catch (MpcAbortException e) {
             throw new IllegalStateException("ABB3 secure MP-SOGS union-peel aborts", e);
         }
     }
 
-    private SharedCellBatch[] shareCellBatches(BatchMpSogsPeelInput input) throws MpcAbortException {
-        BitVector[] localInput = encodeLocalInput(input);
-        int[] bitNums = new int[INPUT_VECTOR_NUM];
+    private SharedCellBatch[] shareCellBatches(BatchMpSogsPeelInput input, int labelBitLength)
+        throws MpcAbortException {
+        BitVector[] localInput = encodeLocalInput(input, labelBitLength);
+        int[] bitNums = new int[STATE_BIT_NUM + labelBitLength];
         Arrays.fill(bitNums, input.size());
         SharedCellBatch[] batches = new SharedCellBatch[parties.length];
         int ownPartyId = z2cParty.ownParty().getPartyId();
@@ -117,13 +119,13 @@ public class Abb3SecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
             MpcZ2Vector[] sharedVectors = parties[partyIndex].getPartyId() == ownPartyId
                 ? z2cParty.shareOwn(localInput)
                 : z2cParty.shareOther(bitNums, parties[partyIndex]);
-            batches[partyIndex] = SharedCellBatch.fromSharedVectors(sharedVectors);
+            batches[partyIndex] = SharedCellBatch.fromSharedVectors(sharedVectors, labelBitLength);
         }
         return batches;
     }
 
-    private BitVector[] encodeLocalInput(BatchMpSogsPeelInput input) {
-        BitVector[] vectors = new BitVector[INPUT_VECTOR_NUM];
+    private BitVector[] encodeLocalInput(BatchMpSogsPeelInput input, int labelBitLength) {
+        BitVector[] vectors = new BitVector[STATE_BIT_NUM + labelBitLength];
         for (int vectorIndex = 0; vectorIndex < vectors.length; vectorIndex++) {
             vectors[vectorIndex] = BitVectorFactory.createZeros(input.size());
         }
@@ -132,7 +134,10 @@ public class Abb3SecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
             MpSogsLocalCellView view = localSketch.localCellView(input.getTier(), cellIndex);
             if (view.isSingleton()) {
                 vectors[SINGLETON_OFFSET].set(batchIndex, true);
-                setValueBits(vectors, batchIndex, view.getSingletonValue());
+                long label = labelEncoding.encode(
+                    view.getSingletonValue(), params, input.getTier(), cellIndex
+                );
+                setLabelBits(vectors, batchIndex, label, labelBitLength);
             } else if (view.isHeavy()) {
                 vectors[HEAVY_OFFSET].set(batchIndex, true);
             }
@@ -140,19 +145,20 @@ public class Abb3SecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         return vectors;
     }
 
-    private CircuitOutput evaluateCircuit(SharedCellBatch[] batches, int batchSize) throws MpcAbortException {
+    private CircuitOutput evaluateCircuit(SharedCellBatch[] batches, int batchSize, int labelBitLength)
+        throws MpcAbortException {
         MpcZ2Vector hasHeavy = z2cParty.createZeros(batchSize);
         MpcZ2Vector hasSingleton = z2cParty.createZeros(batchSize);
-        MpcZ2Vector[] candidateBits = createZeroWord(batchSize);
+        MpcZ2Vector[] candidateBits = createZeroWord(batchSize, labelBitLength);
         for (SharedCellBatch batch : batches) {
             hasHeavy = z2cParty.or(hasHeavy, batch.heavy);
             MpcZ2Vector take = z2cParty.and(batch.singleton, z2cParty.not(hasSingleton));
-            candidateBits = z2cParty.mux(candidateBits, batch.valueBits, take);
+            candidateBits = z2cParty.mux(candidateBits, batch.labelBits, take);
             hasSingleton = z2cParty.or(hasSingleton, batch.singleton);
         }
         MpcZ2Vector allConsistent = z2cParty.createOnes(batchSize);
         for (SharedCellBatch batch : batches) {
-            MpcZ2Vector sameCandidate = eqWord(batch.valueBits, candidateBits);
+            MpcZ2Vector sameCandidate = eqWord(batch.labelBits, candidateBits);
             MpcZ2Vector consistent = z2cParty.or(z2cParty.not(batch.singleton), sameCandidate);
             allConsistent = z2cParty.and(allConsistent, consistent);
         }
@@ -181,15 +187,17 @@ public class Abb3SecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         return equalBits[0];
     }
 
-    private MpcZ2Vector[] createZeroWord(int batchSize) {
-        MpcZ2Vector[] zeroWord = new MpcZ2Vector[ELEMENT_BITS];
-        for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
+    private MpcZ2Vector[] createZeroWord(int batchSize, int labelBitLength) {
+        MpcZ2Vector[] zeroWord = new MpcZ2Vector[labelBitLength];
+        for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
             zeroWord[bitIndex] = z2cParty.createZeros(batchSize);
         }
         return zeroWord;
     }
 
-    private List<MpSogsPeelResult> decodeResults(BitVector[] openedVectors, int batchSize) {
+    private List<MpSogsPeelResult> decodeResults(BitVector[] openedVectors, BatchMpSogsPeelInput input,
+                                                  int labelBitLength) {
+        int batchSize = input.size();
         BitVector opened = openedVectors[0];
         List<MpSogsPeelResult> results = new ArrayList<>(batchSize);
         for (int batchIndex = 0; batchIndex < batchSize; batchIndex++) {
@@ -197,21 +205,24 @@ public class Abb3SecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
                 results.add(MpSogsPeelResult.bottom());
                 continue;
             }
-            long value = 0L;
-            for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
+            long label = 0L;
+            for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
                 if (openedVectors[1 + bitIndex].get(batchIndex)) {
-                    value |= 1L << (ELEMENT_BITS - 1 - bitIndex);
+                    label |= 1L << (labelBitLength - 1 - bitIndex);
                 }
             }
+            long value = labelEncoding.decode(
+                label, params, input.getTier(), input.getCellIndexes().get(batchIndex)
+            );
             results.add(MpSogsPeelResult.element(value));
         }
         return results;
     }
 
-    private static void setValueBits(BitVector[] vectors, int batchIndex, long value) {
-        for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
+    private static void setLabelBits(BitVector[] vectors, int batchIndex, long label, int labelBitLength) {
+        for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
             vectors[VALUE_OFFSET + bitIndex].set(
-                batchIndex, ((value >>> (ELEMENT_BITS - 1 - bitIndex)) & 1L) == 1L
+                batchIndex, ((label >>> (labelBitLength - 1 - bitIndex)) & 1L) == 1L
             );
         }
     }
@@ -235,11 +246,11 @@ public class Abb3SecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         /**
          * Secret-shared opened value bits, masked by {@code opened}.
          */
-        private final MpcZ2Vector[] openedValueBits;
+        private final MpcZ2Vector[] openedLabelBits;
 
-        private CircuitOutput(MpcZ2Vector opened, MpcZ2Vector[] openedValueBits) {
+        private CircuitOutput(MpcZ2Vector opened, MpcZ2Vector[] openedLabelBits) {
             this.opened = opened;
-            this.openedValueBits = openedValueBits;
+            this.openedLabelBits = openedLabelBits;
         }
     }
 
@@ -258,21 +269,21 @@ public class Abb3SecureMpSogsUnionPeel implements SecureMpSogsUnionPeel {
         /**
          * Secret-shared singleton value bits, MSB first.
          */
-        private final MpcZ2Vector[] valueBits;
+        private final MpcZ2Vector[] labelBits;
 
-        private SharedCellBatch(MpcZ2Vector singleton, MpcZ2Vector heavy, MpcZ2Vector[] valueBits) {
+        private SharedCellBatch(MpcZ2Vector singleton, MpcZ2Vector heavy, MpcZ2Vector[] labelBits) {
             this.singleton = singleton;
             this.heavy = heavy;
-            this.valueBits = valueBits;
+            this.labelBits = labelBits;
         }
 
-        private static SharedCellBatch fromSharedVectors(MpcZ2Vector[] vectors) {
-            if (vectors.length != INPUT_VECTOR_NUM) {
+        private static SharedCellBatch fromSharedVectors(MpcZ2Vector[] vectors, int labelBitLength) {
+            if (vectors.length != STATE_BIT_NUM + labelBitLength) {
                 throw new IllegalArgumentException("invalid shared vector count: " + vectors.length);
             }
-            MpcZ2Vector[] valueBits = new MpcZ2Vector[ELEMENT_BITS];
-            System.arraycopy(vectors, VALUE_OFFSET, valueBits, 0, ELEMENT_BITS);
-            return new SharedCellBatch(vectors[SINGLETON_OFFSET], vectors[HEAVY_OFFSET], valueBits);
+            MpcZ2Vector[] labelBits = new MpcZ2Vector[labelBitLength];
+            System.arraycopy(vectors, VALUE_OFFSET, labelBits, 0, labelBitLength);
+            return new SharedCellBatch(vectors[SINGLETON_OFFSET], vectors[HEAVY_OFFSET], labelBits);
         }
     }
 }

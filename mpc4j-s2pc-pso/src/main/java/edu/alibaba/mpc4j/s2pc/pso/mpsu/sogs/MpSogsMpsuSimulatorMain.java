@@ -124,7 +124,7 @@ public class MpSogsMpsuSimulatorMain {
         private int n = 1024;
         private double alpha = MpSogsMpsuParams.DEFAULT_ALPHA;
         private int k = MpSogsMpsuParams.DEFAULT_HASH_NUM;
-        private boolean twoTier = false;
+        private boolean twoTier = true;
         private int auxiliaryHashNum = MpSogsMpsuParams.DEFAULT_HASH_NUM;
         private int auxiliaryCellNum = MpSogsMpsuParams.DEFAULT_AUXILIARY_CELL_NUM;
         private int trials = 5;

@@ -1,7 +1,9 @@
 package edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.packed;
 
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsLocalCellView;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsLabelEncoding;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsMpsuParams;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.MpSogsTier;
 
 import java.util.List;
 
@@ -12,11 +14,6 @@ import java.util.List;
  * @date 2026/06/22
  */
 public class PackedMpSogsCellBatch {
-    /**
-     * Element bit length.
-     */
-    private static final int ELEMENT_BITS = MpSogsMpsuParams.ELEMENT_BIT_LENGTH;
-
     /**
      * Party number.
      */
@@ -34,33 +31,68 @@ public class PackedMpSogsCellBatch {
      */
     private final PackedBooleanShare[] heavy;
     /**
-     * Value bits indexed by party then bit index.
+     * Label bits indexed by party then bit index.
      */
-    private final PackedBooleanShare[][] valueBits;
+    private final PackedBooleanShare[][] labelBits;
+    /** Label representation. */
+    private final MpSogsLabelEncoding labelEncoding;
+    /** Public parameters required by exact label decoding. */
+    private final MpSogsMpsuParams params;
+    /** Public SOGS tier. */
+    private final MpSogsTier tier;
+    /** Public global cell index for each batch lane. */
+    private final int[] cellIndexes;
 
     private PackedMpSogsCellBatch(int partyNum, int batchSize, PackedBooleanShare[] singleton,
-                                  PackedBooleanShare[] heavy, PackedBooleanShare[][] valueBits) {
+                                  PackedBooleanShare[] heavy, PackedBooleanShare[][] labelBits,
+                                  MpSogsLabelEncoding labelEncoding, MpSogsMpsuParams params,
+                                  MpSogsTier tier, int[] cellIndexes) {
         this.partyNum = partyNum;
         this.batchSize = batchSize;
         this.singleton = singleton;
         this.heavy = heavy;
-        this.valueBits = valueBits;
+        this.labelBits = labelBits;
+        this.labelEncoding = labelEncoding;
+        this.params = params;
+        this.tier = tier;
+        this.cellIndexes = cellIndexes;
     }
 
     public static PackedMpSogsCellBatch fromShares(int batchSize, PackedBooleanShare[] singleton,
                                                    PackedBooleanShare[] heavy, PackedBooleanShare[][] valueBits) {
+        int[] cellIndexes = new int[batchSize];
+        for (int laneIndex = 0; laneIndex < batchSize; laneIndex++) {
+            cellIndexes[laneIndex] = laneIndex;
+        }
+        return fromShares(batchSize, singleton, heavy, valueBits, MpSogsLabelEncoding.FULL_VALUE,
+            null, MpSogsTier.MAIN, cellIndexes);
+    }
+
+    public static PackedMpSogsCellBatch fromShares(
+        int batchSize, PackedBooleanShare[] singleton, PackedBooleanShare[] heavy,
+        PackedBooleanShare[][] labelBits, MpSogsLabelEncoding labelEncoding, MpSogsMpsuParams params,
+        MpSogsTier tier, int[] cellIndexes
+    ) {
         if (batchSize <= 0) {
             throw new IllegalArgumentException("batchSize must be positive");
         }
-        if (singleton.length == 0 || singleton.length != heavy.length || singleton.length != valueBits.length) {
+        if (singleton.length == 0 || singleton.length != heavy.length || singleton.length != labelBits.length) {
             throw new IllegalArgumentException("invalid party share dimensions");
         }
-        for (PackedBooleanShare[] partyValueBits : valueBits) {
-            if (partyValueBits.length != ELEMENT_BITS) {
-                throw new IllegalArgumentException("invalid value bit dimension");
+        int labelBitLength = labelEncoding == MpSogsLabelEncoding.FULL_VALUE
+            ? MpSogsMpsuParams.ELEMENT_BIT_LENGTH
+            : labelEncoding.bitLength(params, tier);
+        for (PackedBooleanShare[] partyLabelBits : labelBits) {
+            if (partyLabelBits.length != labelBitLength) {
+                throw new IllegalArgumentException("invalid label bit dimension: " + partyLabelBits.length
+                    + " != " + labelBitLength);
             }
         }
-        return new PackedMpSogsCellBatch(singleton.length, batchSize, singleton, heavy, valueBits);
+        if (cellIndexes.length != batchSize) {
+            throw new IllegalArgumentException("invalid public cell-index dimension");
+        }
+        return new PackedMpSogsCellBatch(singleton.length, batchSize, singleton, heavy, labelBits,
+            labelEncoding, params, tier, cellIndexes.clone());
     }
 
     public static PackedMpSogsCellBatch fromClearViews(PackedBooleanBackend backend,
@@ -76,7 +108,8 @@ public class PackedMpSogsCellBatch {
         int blockNum = backend.blockNum();
         PackedBooleanShare[] singleton = new PackedBooleanShare[partyNum];
         PackedBooleanShare[] heavy = new PackedBooleanShare[partyNum];
-        PackedBooleanShare[][] valueBits = new PackedBooleanShare[partyNum][ELEMENT_BITS];
+        int labelBitLength = MpSogsMpsuParams.ELEMENT_BIT_LENGTH;
+        PackedBooleanShare[][] valueBits = new PackedBooleanShare[partyNum][labelBitLength];
         for (int partyIndex = 0; partyIndex < partyNum; partyIndex++) {
             List<MpSogsLocalCellView> views = viewsByParty.get(partyIndex);
             if (views.size() != batchSize) {
@@ -84,14 +117,14 @@ public class PackedMpSogsCellBatch {
             }
             long[] singletonBlocks = new long[blockNum];
             long[] heavyBlocks = new long[blockNum];
-            long[][] valueBitBlocks = new long[ELEMENT_BITS][blockNum];
+            long[][] valueBitBlocks = new long[labelBitLength][blockNum];
             for (int cellIndex = 0; cellIndex < batchSize; cellIndex++) {
                 MpSogsLocalCellView view = views.get(cellIndex);
                 if (view.isSingleton()) {
                     setLane(singletonBlocks, cellIndex);
                     long value = view.getSingletonValue();
-                    for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
-                        if (((value >>> (ELEMENT_BITS - 1 - bitIndex)) & 1L) != 0L) {
+                    for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
+                        if (((value >>> (labelBitLength - 1 - bitIndex)) & 1L) != 0L) {
                             setLane(valueBitBlocks[bitIndex], cellIndex);
                         }
                     }
@@ -101,11 +134,16 @@ public class PackedMpSogsCellBatch {
             }
             singleton[partyIndex] = backend.shareOwn(singletonBlocks);
             heavy[partyIndex] = backend.shareOwn(heavyBlocks);
-            for (int bitIndex = 0; bitIndex < ELEMENT_BITS; bitIndex++) {
+            for (int bitIndex = 0; bitIndex < labelBitLength; bitIndex++) {
                 valueBits[partyIndex][bitIndex] = backend.shareOwn(valueBitBlocks[bitIndex]);
             }
         }
-        return new PackedMpSogsCellBatch(partyNum, batchSize, singleton, heavy, valueBits);
+        int[] cellIndexes = new int[batchSize];
+        for (int laneIndex = 0; laneIndex < batchSize; laneIndex++) {
+            cellIndexes[laneIndex] = laneIndex;
+        }
+        return new PackedMpSogsCellBatch(partyNum, batchSize, singleton, heavy, valueBits,
+            MpSogsLabelEncoding.FULL_VALUE, null, MpSogsTier.MAIN, cellIndexes);
     }
 
     public int getPartyNum() {
@@ -125,7 +163,19 @@ public class PackedMpSogsCellBatch {
     }
 
     public PackedBooleanShare[][] getValueBits() {
-        return valueBits;
+        return labelBits;
+    }
+
+    public PackedBooleanShare[][] getLabelBits() {
+        return labelBits;
+    }
+
+    public int getLabelBitLength() {
+        return labelBits[0].length;
+    }
+
+    public long decodeLabel(long label, int batchLaneIndex) {
+        return labelEncoding.decode(label, params, tier, cellIndexes[batchLaneIndex]);
     }
 
     private static void setLane(long[] blocks, int laneIndex) {

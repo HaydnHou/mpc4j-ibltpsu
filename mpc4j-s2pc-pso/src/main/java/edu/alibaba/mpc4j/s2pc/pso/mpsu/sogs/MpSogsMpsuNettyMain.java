@@ -5,6 +5,9 @@ import edu.alibaba.mpc4j.common.rpc.RpcPropertiesUtils;
 import edu.alibaba.mpc4j.common.rpc.main.MainPtoConfigUtils;
 import edu.alibaba.mpc4j.common.tool.utils.PropertiesUtils;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.abb3.Abb3MpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.multiplicity.ShamirMultiplicityMpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.multiplicity.PersistentShamirMultiplicityMpSogsMpsuPartyRunner;
+import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.multiplicity.SsmOpeningMode;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep4prss.Rep4PrssMpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.rep5prss.Rep5PrssMpSogsMpsuPartyRunner;
 import edu.alibaba.mpc4j.s2pc.pso.mpsu.sogs.shamir.ShamirMpSogsMpsuPartyRunner;
@@ -68,6 +71,16 @@ public class MpSogsMpsuNettyMain {
      * Key: secure peel backend type.
      */
     private static final String SECURE_PEEL_TYPE = "secure_peel_type";
+    /**
+     * Key: secure uPeel label representation.
+     */
+    private static final String LABEL_ENCODING = "label_encoding";
+    /** Key: RTT-aware SSM collective-opening policy. */
+    private static final String SSM_OPENING_MODE = "ssm_opening_mode";
+    /** Key: public measured network RTT in milliseconds. */
+    private static final String NETWORK_RTT_MS = "network_rtt_ms";
+    /** Key: public measured network throughput in Mbps. */
+    private static final String NETWORK_BANDWIDTH_MBPS = "network_bandwidth_mbps";
     /**
      * Key: use malicious ABB3 backend.
      */
@@ -154,6 +167,10 @@ public class MpSogsMpsuNettyMain {
     private final Rpc ownRpc;
     private final int partyNum;
     private final MpSogsMpsuConfig.SecurePeelType securePeelType;
+    private final MpSogsLabelEncoding labelEncoding;
+    private final SsmOpeningMode ssmOpeningMode;
+    private final double networkRttMillis;
+    private final double networkBandwidthMbps;
     private final boolean parallel;
     private final boolean malicious;
     private final boolean useMac;
@@ -201,6 +218,18 @@ public class MpSogsMpsuNettyMain {
             : partyNum == DEFAULT_PARTY_NUM
             ? MpSogsMpsuConfig.SecurePeelType.ABB3
             : MpSogsMpsuConfig.SecurePeelType.SHAMIR;
+        labelEncoding = PropertiesUtils.containsKeyword(properties, LABEL_ENCODING)
+            ? MpSogsLabelEncoding.valueOf(
+            PropertiesUtils.readString(properties, LABEL_ENCODING).toUpperCase(Locale.ROOT)
+        )
+            : MpSogsLabelEncoding.EXACT_QUOTIENT;
+        ssmOpeningMode = PropertiesUtils.containsKeyword(properties, SSM_OPENING_MODE)
+            ? SsmOpeningMode.valueOf(
+            PropertiesUtils.readString(properties, SSM_OPENING_MODE).toUpperCase(Locale.ROOT)
+        )
+            : SsmOpeningMode.BALANCED_TWO_PHASE;
+        networkRttMillis = PropertiesUtils.readDouble(properties, NETWORK_RTT_MS, 0.0);
+        networkBandwidthMbps = PropertiesUtils.readDouble(properties, NETWORK_BANDWIDTH_MBPS, 0.0);
         ownRpc = RpcPropertiesUtils.readNettyRpcWithOwnName(properties, ownName, partyPrefixes(partyNum));
         parallel = PropertiesUtils.readBoolean(properties, PARALLEL, true);
         malicious = PropertiesUtils.readBoolean(properties, IS_MALICIOUS, false);
@@ -293,6 +322,10 @@ public class MpSogsMpsuNettyMain {
             .build();
         MpSogsMpsuConfig config = new MpSogsMpsuConfig.Builder(params)
             .setSecurePeelType(securePeelType)
+            .setLabelEncoding(labelEncoding)
+            .setSsmOpeningMode(ssmOpeningMode)
+            .setNetworkRttMillis(networkRttMillis)
+            .setNetworkBandwidthMbps(networkBandwidthMbps)
             .setMaxHashSeedRetries(maxHashSeedRetries)
             .setMaxBatchCells(maxBatchCells)
             .build();
@@ -324,6 +357,20 @@ public class MpSogsMpsuNettyMain {
             transcript = new Abb3MpSogsMpsuPartyRunner(z2cParty, config).runAfterInit(localInput);
         } else if (securePeelType == MpSogsMpsuConfig.SecurePeelType.SHAMIR) {
             transcript = new ShamirMpSogsMpsuPartyRunner(ownRpc, config, taskId).run(localInput);
+        } else if (securePeelType == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY) {
+            transcript = new ShamirMultiplicityMpSogsMpsuPartyRunner(ownRpc, config, taskId).run(localInput);
+        } else if (securePeelType == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT
+            || securePeelType
+            == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT
+            || securePeelType
+            == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS
+            || securePeelType
+            == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_DOUBLE_SHARE
+            || securePeelType
+            == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_RTT_AWARE
+            || securePeelType
+            == MpSogsMpsuConfig.SecurePeelType.SHAMIR_MULTIPLICITY_PERSISTENT_QUOTIENT_PRSS_RTT_AWARE_PACKED) {
+            transcript = new PersistentShamirMultiplicityMpSogsMpsuPartyRunner(ownRpc, config, taskId).run(localInput);
         } else if (securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_PACKED
             || securePeelType == MpSogsMpsuConfig.SecurePeelType.REP4_PRSS_OPENED_FIRST) {
             transcript = new Rep4PrssMpSogsMpsuPartyRunner(ownRpc, config, taskId).run(localInput);
@@ -474,10 +521,12 @@ public class MpSogsMpsuNettyMain {
     }
 
     private static String header() {
-        return "Trial\tParty ID\tSet Size\tUnion Upper Bound\tOverlap\tAlpha\tK\tMax Hash Seed Retries"
+        return "Trial\tParty ID\tSet Size\tUnion Upper Bound\tOverlap\tAlpha\tK\tLabel Encoding"
+            + "\tMax Hash Seed Retries"
             + "\tMax Batch Cells\tCR Buffer Bytes\tHash Seed Attempts\tSuccess\tRounds\tUpeel Calls\tDuplicate Openings"
             + "\tInit Time(ms)\tInit DataPacket Num\tInit Payload Bytes(B)\tInit Send Bytes(B)"
-            + "\tPto Time(ms)\tPto DataPacket Num\tPto Payload Bytes(B)\tPto Send Bytes(B)\tFailure Reason";
+            + "\tPto Time(ms)\tPto DataPacket Num\tPto Payload Bytes(B)\tPto Send Bytes(B)\tFailure Reason"
+            + "\tSSM Opening Mode\tNetwork RTT(ms)\tNetwork Bandwidth(Mbps)";
     }
 
     private String toLine(int trialIndex, int setSize, int expectedUnionSize, MpSogsTranscript transcript,
@@ -491,6 +540,7 @@ public class MpSogsMpsuNettyMain {
         columns.add(Double.toString(overlap));
         columns.add(Double.toString(alpha));
         columns.add(Integer.toString(hashNum));
+        columns.add(labelEncoding.name());
         columns.add(Integer.toString(maxHashSeedRetries));
         columns.add(Integer.toString(maxBatchCells));
         columns.add(Integer.toString(crBufferByteSize));
@@ -508,6 +558,9 @@ public class MpSogsMpsuNettyMain {
         columns.add(Long.toString(ptoPayloadBytes));
         columns.add(Long.toString(ptoSendBytes));
         columns.add(transcript.getFailureReason() == null ? "" : transcript.getFailureReason());
+        columns.add(ssmOpeningMode.name());
+        columns.add(Double.toString(networkRttMillis));
+        columns.add(Double.toString(networkBandwidthMbps));
         return String.join("\t", columns);
     }
 }
